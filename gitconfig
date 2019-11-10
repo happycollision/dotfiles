@@ -40,3 +40,5 @@
 	signingkey = FA2F64CCC6BBACF9
 [mergetool]
 	keepBackup = true
+[credential]
+	helper = osxkeychain
