@@ -17,6 +17,7 @@ alias path='echo $PATH | tr -s ":" "\n"'
 
 # Git
 alias gall='git add --all'
+alias gc='git commit'
 alias ga='git commit --amend'
 alias gf='git commit --amend --no-edit'
 alias glog='git --no-pager log --pretty="**%s**%n%n%b" --reverse master..HEAD'
