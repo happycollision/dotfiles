@@ -1,0 +1,7 @@
+# Opens a new terminal and runs the command given in the new Terminal.
+# You can pass a quoted string, but I am not sure how escaping works at this
+# level.
+
+new() {
+  osascript -e "tell application \"Terminal\" to do script \"$@\""
+}
