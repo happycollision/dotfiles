@@ -22,7 +22,7 @@ alias ga='git commit --amend'
 alias gf='git commit --amend --no-edit'
 alias gpf='git push --force-with-lease'
 alias glog='git --no-pager log --pretty="**%s**%n%n%b" --reverse master..HEAD'
-alias glogsep='git --no-pager log --pretty="### %s%n%n%b" --reverse master..HEAD'
+alias glogsep='git --no-pager log --pretty="# %s%n%n%b" --reverse master..HEAD'
 
 # Include custom aliases
 if [[ -f ~/.aliases.local ]]; then
