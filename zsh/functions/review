@@ -1,0 +1,9 @@
+# cleans up (permanent!) and checks out a given commit, then resets the head to
+# before the commit so all the changes are unstaged. This is helpful to use your
+# IDE to review a commit's changes as though you were making them
+review() {
+  git reset HEAD --hard
+  git clean -fd
+  git checkout ${1}
+  git reset HEAD^
+}
