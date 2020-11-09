@@ -50,3 +50,5 @@ _load_settings "$HOME/.zsh/configs"
 # uninstall by removing these lines or running `tabtab uninstall slss`
 [[ -f /Users/Don/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/slss.zsh ]] && . /Users/Don/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/slss.zsh
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+export VOLTA_HOME="$HOME/.volta"
+export PATH="$VOLTA_HOME/bin:$PATH"
