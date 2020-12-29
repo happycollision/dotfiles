@@ -2,7 +2,9 @@
 PATH="$HOME/.bin:/usr/local/sbin:$PATH"
 
 # Load asdf
-if which brew &>/dev/null; then
+if [ -f "/usr/local/opt/asdf/asdf.sh" ]; then
+  . "/usr/local/opt/asdf/asdf.sh"
+elif which brew &>/dev/null; then
   . "$(brew --prefix asdf)/asdf.sh"
 elif [ -f "$HOME/.asdf/asdf.sh" ]; then
   . "$HOME/.asdf/asdf.sh"
