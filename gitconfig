@@ -24,8 +24,6 @@
   prune = true
 [rebase]
   autosquash = true
-[include]
-  path = ~/.gitconfig.local
 [diff]
   colorMoved = zebra
 [filter "lfs"]
@@ -43,3 +41,5 @@
 	helper = osxkeychain
 [url "git@github.com:"]
 	insteadOf = https://github.com/
+[include]
+  path = ~/.gitconfig.local
