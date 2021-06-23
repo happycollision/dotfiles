@@ -1,5 +1,7 @@
 #!/bin/sh
 
+echo "Initial setup complete. Now doing post-up tasks."
+
 touch "$HOME"/.psqlrc.local
 
 # if [ -e "$HOME"/.vim/autoload/plug.vim ]; then
@@ -20,8 +22,14 @@ Try \`rcup' again after first installing Homebrew with
 MSG
 fi
 
-if [[ !( -e /usr/local/bin/asdf ) ]]; then
-  brew install asdf
+# Add asdf
+if ! command -v asdf &> /dev/null; then
+  if ! command -v brew &> /dev/null; then
+    echo "Cannot install asdf without brew"
+  else
+    echo "Installing asdf"
+    brew install asdf
+  fi
 fi
 
 # reset -Q
