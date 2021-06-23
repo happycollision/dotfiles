@@ -32,6 +32,13 @@ if ! command -v asdf &> /dev/null; then
   fi
 fi
 
+# asdf: if nodejs is installed, do keyring stuff
+if command -v asdf &> /dev/null; then
+  if [[ -f ~/.asdf/plugins/nodejs/bin/import-release-team-keyring ]]; then
+    echo "Importing nodejs keyring (from asdf's nodejs plugin)"
+    ~/.asdf/plugins/nodejs/bin/import-release-team-keyring
+  fi
+fi
 # reset -Q
 
 # detect old OS X broken /etc/zshenv and suggest rename
