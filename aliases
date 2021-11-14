@@ -7,10 +7,21 @@ alias v="$VISUAL"
 
 # Bundler
 alias b="bundle"
+alias be="bundle exec"
 
 # Rails
+alias r="bin/rails"
+alias rsb="bin/rails s -b 0.0.0.0"
 alias migrate="rake db:migrate db:rollback && rake db:migrate db:test:prepare"
 alias s="rspec"
+alias bs="bundle exec rspec"
+
+# Jekyll
+alias jkserve="bundle exec jekyll serve --incremental --config=_config.yml,_config.dev.yml --host=0.0.0.0"
+
+alias jkserve-regenerate="bundle exec jekyll serve --config=_config.yml,_config.dev.yml --host=0.0.0.0"
+
+
 
 # Pretty print the path
 alias path='echo $PATH | tr -s ":" "\n"'
@@ -32,6 +43,11 @@ alias grr="git checkout --ours ."
 alias gpf='git push --force-with-lease'
 alias glog='git --no-pager log --pretty="**%s**%n%n%b" --reverse master..HEAD || git --no-pager log --pretty="**%s**%n%n%b" --reverse main..HEAD'
 alias glogsep='git --no-pager log --pretty="# %s%n%n%b" --reverse master..HEAD || git --no-pager log --pretty="## %s%n%n%b" --reverse main..HEAD'
+
+# Postgres, when installed
+alias pgstart="pg_ctl -D /usr/local/var/postgres start"
+alias pgrestart="pg_ctl -D /usr/local/var/postgres restart"
+alias pgstop="pg_ctl -D /usr/local/var/postgres stop"
 
 # Include custom aliases
 if [[ -f ~/.aliases.local ]]; then
