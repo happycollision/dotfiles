@@ -1,3 +1,0 @@
-gri() {
-  git rebase -i ${1}
-}
