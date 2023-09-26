@@ -55,3 +55,10 @@ export PATH="$VOLTA_HOME/bin:$PATH"
 
 # Add Visual Studio Code (code)
 export PATH="$PATH:/Applications/Visual Studio Code.app/Contents/Resources/app/bin"
+
+# bun completions
+[ -s "/Users/dondenton/.bun/_bun" ] && source "/Users/dondenton/.bun/_bun"
+
+# bun
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
