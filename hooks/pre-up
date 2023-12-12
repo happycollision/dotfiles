@@ -1,0 +1,28 @@
+#!/bin/sh
+
+echo "Before running rcup... we are grabbing a few things."
+
+# Git Jaspr
+
+expected_git_jaspr_version="v25-beta"
+
+# function to install the latest version of git-jaspr
+install_git_jaspr() {
+  curl -L https://github.com/MichaelSims/git-jaspr/releases/download/$expected_git_jaspr_version/git-jaspr-mac -o ~/dotfiles/bin/git-jaspr
+  chmod +x ~/dotfiles/bin/git-jaspr
+}
+
+# check if git-jaspr is installed
+if [ -f ~/dotfiles/bin/git-jaspr ]; then
+  # check if the version is correct. Returned value is like "git jaspr version
+  # v25-beta", so we need to get the final part of the string with `cut`
+  installed_git_jaspr_version=$(~/dotfiles/bin/git-jaspr --version | cut -d ' ' -f 4)
+  
+  if [ "$installed_git_jaspr_version" != "$expected_git_jaspr_version" ]; then
+    echo "Updating git-jaspr from $installed_git_jaspr_version to $expected_git_jaspr_version"
+    install_git_jaspr
+  fi
+else
+  echo "Installing git-jaspr $expected_git_jaspr_version"
+  install_git_jaspr
+fi
