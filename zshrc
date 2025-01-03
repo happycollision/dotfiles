@@ -42,13 +42,13 @@ _load_settings "$HOME/.zsh/configs"
 
 # tabtab source for serverless package
 # uninstall by removing these lines or running `tabtab uninstall serverless`
-[[ -f /Users/Don/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/serverless.zsh ]] && . /Users/Don/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/serverless.zsh
+[[ -f ~/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/serverless.zsh ]] && . ~/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/serverless.zsh
 # tabtab source for sls package
 # uninstall by removing these lines or running `tabtab uninstall sls`
-[[ -f /Users/Don/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/sls.zsh ]] && . /Users/Don/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/sls.zsh
+[[ -f ~/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/sls.zsh ]] && . ~/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/sls.zsh
 # tabtab source for slss package
 # uninstall by removing these lines or running `tabtab uninstall slss`
-[[ -f /Users/Don/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/slss.zsh ]] && . /Users/Don/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/slss.zsh
+[[ -f ~/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/slss.zsh ]] && . ~/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/slss.zsh
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 export VOLTA_HOME="$HOME/.volta"
 export PATH="$VOLTA_HOME/bin:$PATH"
@@ -57,14 +57,14 @@ export PATH="$VOLTA_HOME/bin:$PATH"
 export PATH="$PATH:/Applications/Visual Studio Code.app/Contents/Resources/app/bin"
 
 # bun completions
-[ -s "/Users/dondenton/.bun/_bun" ] && source "/Users/dondenton/.bun/_bun"
+[ -s "~/.bun/_bun" ] && source "~/.bun/_bun"
 
 # bun
 export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
 
 # pnpm
-export PNPM_HOME="/Users/dondenton/Library/pnpm"
+export PNPM_HOME="~/Library/pnpm"
 case ":$PATH:" in
   *":$PNPM_HOME:"*) ;;
   *) export PATH="$PNPM_HOME:$PATH" ;;
