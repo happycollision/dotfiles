@@ -119,7 +119,7 @@ dim="\033[2m"
 reset="\033[0m"
 
 echo "Fetching open pull requests awaiting your review..."
-echo "$dim(for $CURRENT_GH_USER, excluding dependabot, grouped by repository, then sorted by date)...$reset"
+printf "$dim(for $CURRENT_GH_USER, excluding dependabot, grouped by repository, then sorted by date)...$reset"
 echo ""
 
 PR_DATA_JSON=$(gh search prs --review-requested=@me --state=open --limit 100 --json repository,title,url,author,createdAt -- -author:dependabot[bot] 2>/dev/null)
