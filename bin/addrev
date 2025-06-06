@@ -1,0 +1,503 @@
+#!/usr/bin/env bash
+
+# Check for required dependencies
+check_dependencies() {
+  local missing_deps=()
+  
+  # Check for gh CLI
+  if ! command -v gh >/dev/null 2>&1; then
+    missing_deps+=("gh (GitHub CLI)")
+  fi
+  
+  # Check for tput (usually part of ncurses)
+  if ! command -v tput >/dev/null 2>&1; then
+    missing_deps+=("tput (ncurses)")
+  fi
+  
+  # Check for awk
+  if ! command -v awk >/dev/null 2>&1; then
+    missing_deps+=("awk")
+  fi
+  
+  # Check for jq (used by gh CLI internally, but also directly)
+  if ! command -v jq >/dev/null 2>&1; then
+    missing_deps+=("jq")
+  fi
+  
+  if [ ${#missing_deps[@]} -gt 0 ]; then
+    echo "Error: Missing required dependencies:" >&2
+    for dep in "${missing_deps[@]}"; do
+      echo "  - $dep" >&2
+    done
+    echo "" >&2
+    echo "Installation instructions:" >&2
+    echo "  macOS: brew install gh jq" >&2
+    echo "  Ubuntu/Debian: sudo apt install gh jq" >&2
+    echo "  RHEL/CentOS: sudo yum install gh jq" >&2
+    echo "" >&2
+    echo "For GitHub CLI (gh), you can also install from: https://cli.github.com/" >&2
+    echo "After installing gh, run 'gh auth login' to authenticate." >&2
+    exit 1
+  fi
+  
+  # Check if gh is authenticated
+  if ! gh auth status >/dev/null 2>&1; then
+    echo "Error: GitHub CLI is not authenticated." >&2
+    echo "Please run 'gh auth login' first." >&2
+    exit 1
+  fi
+}
+
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  cat <<EOF
+Usage: $(basename "$0") [--all] [--log] [--dry] [--help]
+
+Lists all your open GitHub PRs (updated in the last 2 months by default), grouped by repo,
+and interactively lets you assign reviewers (from past contributors) to selected PRs.
+An interactive menu allows you to select multiple PRs and assign multiple reviewers.
+
+Options:
+  --all      Show all open PRs, regardless of last update time.
+  --log      Enable debug logging to ./pr-debug.log
+  --dry      Dry run - show what would be done without actually assigning reviewers.
+  --help     Show this help message.
+
+Dependencies:
+  - gh (GitHub CLI) - https://cli.github.com/
+  - jq (JSON processor)
+  - tput (terminal utilities, usually pre-installed)
+  - awk (text processing, usually pre-installed)
+
+Installation:
+  macOS: brew install gh jq
+  Ubuntu/Debian: sudo apt install gh jq
+  RHEL/CentOS: sudo yum install gh jq
+
+After installing gh, run 'gh auth login' to authenticate.
+
+Examples:
+  $(basename "$0")
+  $(basename "$0") --all
+  $(basename "$0") --log
+  $(basename "$0") --dry
+
+EOF
+  exit 0
+fi
+
+# Check dependencies before proceeding
+check_dependencies
+
+# Get current user login
+USER=$(gh api user --jq .login)
+
+# Check for arguments
+SHOW_ALL=0
+DEBUG_LOG=0
+DRY_RUN=0
+for arg in "$@"; do
+  case "$arg" in
+    --all) SHOW_ALL=1 ;;
+    --log) DEBUG_LOG=1 ;;
+    --dry) DRY_RUN=1 ;;
+  esac
+done
+
+# Helper function for debug logging
+debug_log() {
+  if [[ $DEBUG_LOG -eq 1 ]]; then
+    echo "$1" >> ./pr-debug.log
+  fi
+}
+
+# List all open PRs authored by the current user across all repos, including updatedAt
+gh search prs --author "$USER" --state open --json number,title,repository,url,updatedAt \
+  -q '.[] | "\(.repository.nameWithOwner)|\(.number)|\(.title)|\(.url)|\(.updatedAt)"' > /tmp/prs.txt
+
+# Use a POSIX-compatible way to read lines into an array
+PRS=()
+# Use BSD/macOS compatible date calculation
+CUTOFF_DATE=$(date -u -v-2m +%Y-%m-%dT%H:%M:%SZ)
+while IFS= read -r line; do
+  # Split line to get updatedAt
+  UPDATED_AT=$(echo "$line" | awk -F'|' '{print $5}')
+  if [[ $SHOW_ALL -eq 1 || -z "$UPDATED_AT" ]]; then
+    PRS+=("$line")
+  else
+    # Only include PRs updated within the last 2 months
+    if [[ "$UPDATED_AT" > "$CUTOFF_DATE" ]]; then
+      PRS+=("$line")
+    fi
+  fi
+done < /tmp/prs.txt
+
+if [ ${#PRS[@]} -eq 0 ]; then
+  if [[ $SHOW_ALL -eq 1 ]]; then
+    echo "No open PRs found for user $USER."
+  else
+    echo "No open PRs updated in the last 2 months for user $USER."
+    echo "Use --all to see all open PRs."
+  fi
+  exit 0
+fi
+
+# Group PRs by repo (portable: no associative arrays)
+REPO_LIST=()
+REPO_PRS_LIST=()
+for entry in "${PRS[@]}"; do
+  IFS='|' read -r REPO PR_NUMBER PR_TITLE PR_URL UPDATED_AT <<< "$entry"
+  # Find repo index or add new
+  found=0
+  for i in "${!REPO_LIST[@]}"; do
+    if [ "${REPO_LIST[$i]}" = "$REPO" ]; then
+      REPO_PRS_LIST[$i]+=$'\n'"$PR_NUMBER|$PR_TITLE|$PR_URL|$UPDATED_AT"
+      found=1
+      break
+    fi
+  done
+  if [ $found -eq 0 ]; then
+    REPO_LIST+=("$REPO")
+    REPO_PRS_LIST+=("$PR_NUMBER|$PR_TITLE|$PR_URL|$UPDATED_AT")
+  fi
+done
+
+# Global quit flag
+QUIT_REQUESTED=0
+
+# Helper: radically simple multi-select menu using bash and tput
+multi_select_menu() {
+  # $1: array name (by value)
+  # $2: prompt
+  # $3: optional header text to display above the menu
+  # $4: array name for selectability (optional)
+  local arr_name=$1
+  local prompt=$2
+  local header_text=$3
+  local selectability_arr_name=$4
+
+  # Copy array by value for POSIX sh compatibility (no local -n)
+  eval "arr=(\"\${${arr_name}[@]}\")"
+  local n=${#arr[@]}
+  local selected=()
+  local current=0
+  
+  # Copy selectability array if provided
+  local selectable=()
+  if [[ -n "$selectability_arr_name" ]]; then
+    eval "selectable=(\"\${${selectability_arr_name}[@]}\")"
+  else
+    # Default: all items are selectable
+    for ((i=0; i<n; i++)); do
+      selectable[i]=1
+    done
+  fi
+
+  # Initialize all unselected
+  for ((i=0; i<n; i++)); do
+    selected[i]=0
+  done
+  
+  # Find first selectable item
+  while [[ $current -lt $n && ${selectable[$current]} -eq 0 ]]; do
+    ((current++))
+  done
+
+  # Save terminal settings
+  stty_orig=$(stty -g)
+  tput civis
+
+  # Use tput to move cursor, but always redraw the menu in-place
+  draw_menu() {
+    { 
+      printf "\033c"
+      if [[ -n "$header_text" ]]; then
+        printf "%b\n" "$header_text"
+        echo
+      fi
+      echo "$prompt"
+      echo "(Use ↑/↓ or k/j to move, space to select, enter to confirm, q to quit)"
+      echo "Select nothing and press enter to quit."
+      for ((i=0; i<n; i++)); do
+        if [[ $i -eq $current ]]; then
+          printf "\033[7m"
+        fi
+        if [[ ${selectable[i]} -eq 0 ]]; then
+          # Non-selectable item (header/spacer) - use printf to interpret escape sequences
+          printf "  %b\n" "${arr[i]}"
+        elif [[ ${selected[i]} -eq 1 ]]; then
+          printf "  [x] %s\n" "${arr[i]}"
+        else
+          printf "  [ ] %s\n" "${arr[i]}"
+        fi
+        if [[ $i -eq $current ]]; then
+          printf "\033[0m"
+        fi
+      done
+      echo "--- END OF MENU ---"
+    } 1>&2
+  }
+
+  # Read keys and update selection
+  while true; do
+    draw_menu
+    IFS= read -rsn1 key
+    # Support both k/j and arrow keys for navigation
+    if [[ $key == $'\x1b' ]]; then
+      IFS= read -rsn1 k1
+      if [[ $k1 == "[" ]]; then
+        IFS= read -rsn1 k2
+        case "$k2" in
+          "A") key="k" ;; # up arrow
+          "B") key="j" ;; # down arrow
+          *) key="" ;;
+        esac
+      fi
+    fi
+    case "$key" in
+      k) # up
+        ((current--))
+        # Skip non-selectable items going up
+        while [[ $current -ge 0 && ${selectable[$current]} -eq 0 ]]; do
+          ((current--))
+        done
+        # Wrap to bottom if we went too far up
+        if [[ $current -lt 0 ]]; then
+          current=$((n-1))
+          while [[ $current -ge 0 && ${selectable[$current]} -eq 0 ]]; do
+            ((current--))
+          done
+        fi
+        ;;
+      j) # down
+        ((current++))
+        # Skip non-selectable items going down
+        while [[ $current -lt $n && ${selectable[$current]} -eq 0 ]]; do
+          ((current++))
+        done
+        # Wrap to top if we went too far down
+        if [[ $current -ge $n ]]; then
+          current=0
+          while [[ $current -lt $n && ${selectable[$current]} -eq 0 ]]; do
+            ((current++))
+          done
+        fi
+        ;;
+      " ") # space
+        # Only toggle if current item is selectable
+        if [[ ${selectable[$current]} -eq 1 ]]; then
+          selected[$current]=$((1 - ${selected[$current]}))
+          debug_log "DEBUG: Toggled selection for index $current to ${selected[$current]}"
+        else
+          debug_log "DEBUG: Tried to select non-selectable index $current"
+        fi
+        ;;
+      "") # enter
+        debug_log "DEBUG: User pressed enter, breaking out of menu"
+        break
+        ;;
+      q)
+        tput cnorm
+        stty "$stty_orig"
+        clear 1>&2
+        debug_log "DEBUG: User pressed q, returning 2"
+        return 2  # Special exit code for quit
+        ;;
+
+    esac
+  done
+
+  # Restore terminal
+  tput cnorm
+  stty "$stty_orig"
+  clear 1>&2
+
+  # Output selected indices (0-based)
+  local result=()
+  for ((i=0; i<n; i++)); do
+    if [[ ${selected[i]} -eq 1 ]]; then
+      result+=($i)
+      debug_log "DEBUG: Selected index $i (selectable: ${selectable[i]})"
+    fi
+  done
+  debug_log "DEBUG: Outputting result: ${result[*]}"
+  echo "${result[*]}"
+}
+
+# Build PR display list and mapping - now grouped by repo
+INDEX=0
+INDEX_TO_PR=()
+PR_DISPLAY_LIST=()
+PR_SELECTABLE=()
+for idx in "${!REPO_LIST[@]}"; do
+  REPO="${REPO_LIST[$idx]}"
+  
+  # Add repo header (but don't make it selectable)
+  PR_DISPLAY_LIST+=("")
+  PR_DISPLAY_LIST+=("📁 $REPO")
+  INDEX_TO_PR[$INDEX]=""  # Empty entry for repo header spacing
+  PR_SELECTABLE[$INDEX]=0  # Not selectable
+  INDEX=$((INDEX+1))
+  INDEX_TO_PR[$INDEX]=""  # Empty entry for repo header
+  PR_SELECTABLE[$INDEX]=0  # Not selectable
+  INDEX=$((INDEX+1))
+  
+  IFS=$'\n' read -rd '' -a PR_LINES <<< "${REPO_PRS_LIST[$idx]}"
+  for PR_LINE in "${PR_LINES[@]}"; do
+    [ -z "$PR_LINE" ] && continue
+    IFS='|' read -r PR_NUMBER PR_TITLE PR_URL UPDATED_AT <<< "$PR_LINE"
+    
+    # Add PR title line (selectable)
+    PR_DISPLAY_LIST+=("  $PR_TITLE")
+    INDEX_TO_PR[$INDEX]="$REPO|$PR_NUMBER|$PR_TITLE|$PR_URL"
+    PR_SELECTABLE[$INDEX]=1  # Selectable
+    INDEX=$((INDEX+1))
+    
+    # Add PR URL line (not selectable, dimmed)
+    PR_DISPLAY_LIST+=("     \033[2m$PR_URL\033[0m")
+    INDEX_TO_PR[$INDEX]=""  # Empty entry for URL line
+    PR_SELECTABLE[$INDEX]=0  # Not selectable
+    INDEX=$((INDEX+1))
+  done
+done
+
+# Interactive PR selection
+debug_log "DEBUG: Calling multi_select_menu for PRs"
+SELECTED_INDICES=$(multi_select_menu PR_DISPLAY_LIST "Select PR(s) to assign reviewers:" "" PR_SELECTABLE)
+EXIT_CODE=$?
+debug_log "DEBUG: Exit code from multi_select_menu: $EXIT_CODE"
+if [[ $EXIT_CODE -eq 2 ]]; then
+  echo "Cancelled by user."
+  exit 0
+fi
+
+debug_log "DEBUG: Raw SELECTED_INDICES: '$SELECTED_INDICES'"
+
+# More careful cleaning - first remove terminal sequences, then extract the actual result
+SELECTED_INDICES=$(printf '%s\n' "$SELECTED_INDICES" | sed 's/\x1b\[[?0-9;]*[a-zA-Z]//g' | sed 's/[^0-9 ]//g' | xargs)
+debug_log "DEBUG: Cleaned SELECTED_INDICES: '$SELECTED_INDICES'"
+
+if [[ -z "$SELECTED_INDICES" ]]; then
+  echo "No PRs selected. Exiting."
+  exit 0
+fi
+
+# Collect all selected PRs and their info
+SELECTED_PRS=()
+ALL_USERS=()
+for idx in $SELECTED_INDICES; do
+  debug_log "DEBUG: Processing index $idx"
+  if [ "$idx" -eq "$idx" ] 2>/dev/null && [ "$idx" -ge 0 ] 2>/dev/null && [ "$idx" -lt ${#INDEX_TO_PR[@]} ] 2>/dev/null; then
+    PR_LINE="${INDEX_TO_PR[$idx]}"
+    debug_log "DEBUG: PR_LINE for index $idx: '$PR_LINE'"
+    
+    # Skip empty entries (repo headers)
+    if [[ -z "$PR_LINE" ]]; then
+      continue
+    fi
+    
+    if [[ -n "$PR_LINE" ]]; then
+      IFS='|' read -r REPO PR_NUMBER PR_TITLE PR_URL <<< "$PR_LINE"
+      
+      if [[ -n "$REPO" ]]; then
+        SELECTED_PRS+=("$REPO|$PR_NUMBER|$PR_TITLE|$PR_URL")
+        
+        # Get contributors for this repo and add to the master list
+        gh api repos/$REPO/contributors --jq '.[].login' > /tmp/users_${PR_NUMBER}.txt 2>/dev/null
+        if [ $? -eq 0 ] && [ -s /tmp/users_${PR_NUMBER}.txt ]; then
+          while IFS= read -r user; do
+            # Add user to list if not already present
+            if ! printf '%s\n' "${ALL_USERS[@]}" | grep -Fxq "$user"; then
+              ALL_USERS+=("$user")
+            fi
+          done < /tmp/users_${PR_NUMBER}.txt
+        fi
+      fi
+    fi
+  fi
+done
+
+if [ ${#SELECTED_PRS[@]} -eq 0 ]; then
+  echo "No valid PRs found. Exiting."
+  exit 0
+fi
+
+if [ ${#ALL_USERS[@]} -eq 0 ]; then
+  echo "No contributors found for the selected repositories. Exiting."
+  exit 0
+fi
+
+# Show what we're about to do
+SELECTED_PRS_TEXT="Selected PRs:"
+for pr_info in "${SELECTED_PRS[@]}"; do
+  IFS='|' read -r REPO PR_NUMBER PR_TITLE PR_URL <<< "$pr_info"
+  SELECTED_PRS_TEXT="$SELECTED_PRS_TEXT"$'\n'"- $PR_TITLE"$'\n'"  \033[2m$REPO #$PR_NUMBER\033[0m"
+done
+
+# Single reviewer selection for all PRs with header showing selected PRs
+debug_log "DEBUG: Calling multi_select_menu for reviewers"
+REVIEWER_INDICES=$(multi_select_menu ALL_USERS "Select reviewers to assign to ALL ${#SELECTED_PRS[@]} selected PRs:" "$SELECTED_PRS_TEXT")
+EXIT_CODE=$?
+debug_log "DEBUG: Exit code from multi_select_menu: $EXIT_CODE"
+if [[ $EXIT_CODE -eq 2 ]]; then
+  echo "Cancelled by user."
+  exit 0
+fi
+
+debug_log "DEBUG: Raw REVIEWER_INDICES: '$REVIEWER_INDICES'"
+
+REVIEWER_INDICES=$(printf '%s\n' "$REVIEWER_INDICES" | sed 's/\x1b\[[?0-9;]*[a-zA-Z]//g' | sed 's/[^0-9 ]//g' | xargs)
+
+if [[ -z "$REVIEWER_INDICES" ]]; then
+  echo "No reviewers selected. Exiting."
+  exit 0
+fi
+
+# Build reviewer list
+REVIEWERS=()
+for k in $REVIEWER_INDICES; do
+  if [ "$k" -eq "$k" ] 2>/dev/null && [ "$k" -ge 0 ] 2>/dev/null && [ "$k" -lt ${#ALL_USERS[@]} ] 2>/dev/null; then
+    REVIEWERS+=("${ALL_USERS[$k]}")
+  fi
+done
+
+if [ ${#REVIEWERS[@]} -eq 0 ]; then
+  echo "No valid reviewers selected. Exiting."
+  exit 0
+fi
+
+echo "Assigning reviewers [${REVIEWERS[*]}] to ${#SELECTED_PRS[@]} PRs..."
+echo
+
+# Apply reviewers to all selected PRs
+for pr_info in "${SELECTED_PRS[@]}"; do
+  IFS='|' read -r REPO PR_NUMBER PR_TITLE PR_URL <<< "$pr_info"
+  
+  # Create comma-separated reviewer list for gh CLI
+  REVIEWER_LIST=$(IFS=','; echo "${REVIEWERS[*]}")
+  
+  debug_log "DEBUG: About to assign reviewers to $REPO #$PR_NUMBER"
+  debug_log "DEBUG: Reviewers array: [${REVIEWERS[*]}]"
+  debug_log "DEBUG: Comma-separated reviewers: $REVIEWER_LIST"
+  debug_log "DEBUG: Command will be: gh pr edit $PR_NUMBER --repo $REPO --add-reviewer $REVIEWER_LIST"
+  
+  if [[ $DRY_RUN -eq 1 ]]; then
+    echo "🔍 [DRY RUN] Would assign reviewers [$REVIEWER_LIST] to $REPO #$PR_NUMBER: $PR_TITLE"
+    debug_log "DEBUG: DRY RUN - skipping actual assignment for $REPO #$PR_NUMBER"
+  else
+    # Execute the command and capture both stdout and stderr
+    if gh pr edit "$PR_NUMBER" --repo "$REPO" --add-reviewer "$REVIEWER_LIST" 2>&1; then
+      echo "✓ Assigned to $REPO #$PR_NUMBER: $PR_TITLE"
+      debug_log "DEBUG: Successfully assigned reviewers to $REPO #$PR_NUMBER"
+    else
+      echo "✗ Failed to assign reviewers to $REPO #$PR_NUMBER: $PR_TITLE"
+      debug_log "DEBUG: Failed to assign reviewers to $REPO #$PR_NUMBER"
+    fi
+  fi
+done
+
+echo
+if [[ $DRY_RUN -eq 1 ]]; then
+  echo "🔍 [DRY RUN] Would have assigned [${REVIEWERS[*]}] to ${#SELECTED_PRS[@]} PRs."
+else
+  echo "Done! Assigned [${REVIEWERS[*]}] to ${#SELECTED_PRS[@]} PRs."
+fi
