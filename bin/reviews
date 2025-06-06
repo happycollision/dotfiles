@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+
+# List all the pull requests awaiting your review, assuming you are signed in to
+# GitHub CLI ('gh'). Excludes dependabot PRs.
+
+# Check if GitHub CLI ('gh') is installed
+if ! command -v gh &> /dev/null; then
+    echo "Error: GitHub CLI ('gh') not found. This script relies on 'gh'."
+    echo "Please install it from https://cli.github.com/"
+    exit 1
+fi
+
+# Check if user is logged in to GitHub CLI
+if ! gh auth status &>/dev/null; then
+    echo "Error: You are not logged in to GitHub CLI ('gh')."
+    echo "Please run 'gh auth login' to authenticate."
+    exit 1
+fi
+
+# Check if jq is installed
+if ! command -v jq &> /dev/null; then
+    echo "Error: 'jq' (command-line JSON processor) not found."
+    echo "This script requires 'jq' to group and sort PRs."
+    echo "Please install 'jq' (e.g., 'sudo apt-get install jq' or 'brew install jq') and try again."
+    exit 1
+fi
+
+CURRENT_GH_USER="$(gh api user -q .login 2>/dev/null || echo "the authenticated 'gh' user")"
+
+# Determine date command type (GNU or BSD-like) once
+DATE_COMMAND_TYPE="unknown"
+if date --version >/dev/null 2>&1 && [[ $(date --version) == *"GNU coreutils"* ]]; then
+    DATE_COMMAND_TYPE="gnu"
+elif [[ $(uname) == "Darwin" ]]; then # macOS uses BSD date
+    DATE_COMMAND_TYPE="bsd"
+fi
+
+# Function to format date with relative and absolute parts
+get_formatted_date_with_relative() {
+    local utc_iso_timestamp="$1"
+    local pr_epoch
+    local pr_year
+    local current_epoch
+    local current_year
+    local age_seconds
+    local relative_part=""
+    local absolute_part=""
+    local final_formatted_date="N/A"
+
+    if [ -z "$utc_iso_timestamp" ] || [ "$utc_iso_timestamp" == "null" ]; then
+        echo "$final_formatted_date"
+        return
+    fi
+
+    # Convert PR timestamp to seconds since epoch and get PR's year
+    if [ "$DATE_COMMAND_TYPE" == "gnu" ]; then
+        pr_epoch=$(date -d "$utc_iso_timestamp" +%s 2>/dev/null)
+        pr_year=$(date -d "$utc_iso_timestamp" +%Y 2>/dev/null)
+    elif [ "$DATE_COMMAND_TYPE" == "bsd" ]; then
+        pr_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" -u "$utc_iso_timestamp" +%s 2>/dev/null)
+        pr_year=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" -u "$utc_iso_timestamp" +%Y 2>/dev/null)
+    else
+        _temp_dt="${utc_iso_timestamp/T/ }"
+        echo "${_temp_dt/Z/ UTC}" # Fallback
+        return
+    fi
+
+    if [ -z "$pr_epoch" ] || [ -z "$pr_year" ]; then # If date conversion failed
+        _temp_dt="${utc_iso_timestamp/T/ }"
+        echo "${_temp_dt/Z/ UTC}" # Fallback
+        return
+    fi
+
+    current_epoch=$(date +%s)
+    current_year=$(date +%Y)
+    age_seconds=$((current_epoch - pr_epoch))
+
+    # Calculate relative part
+    if [ "$age_seconds" -lt 0 ]; then 
+        relative_part="just now" # Clock skew or future date
+    elif [ "$age_seconds" -lt 60 ]; then
+        relative_part="${age_seconds} seconds ago"
+    elif [ "$age_seconds" -lt 3600 ]; then # Less than 1 hour
+        relative_part="$((age_seconds / 60)) minutes ago"
+    elif [ "$age_seconds" -lt 86400 ]; then # Less than 1 day
+        relative_part="$((age_seconds / 3600)) hours ago"
+    else # 1 day or older
+        relative_part="$((age_seconds / 86400)) days ago"
+    fi
+
+    # Calculate absolute part
+    if [ "$pr_year" == "$current_year" ]; then
+        # Same year: "Mon Day"
+        if [ "$DATE_COMMAND_TYPE" == "gnu" ]; then
+            absolute_part=$(date -d "$utc_iso_timestamp" +"%b %e")
+        elif [ "$DATE_COMMAND_TYPE" == "bsd" ]; then
+            absolute_part=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" -u "$utc_iso_timestamp" +"%b %e")
+        else # Fallback
+            absolute_part=$(echo "$utc_iso_timestamp" | cut -dT -f1) 
+        fi
+    else
+        # Different year: "Mon Day, YYYY"
+        if [ "$DATE_COMMAND_TYPE" == "gnu" ]; then
+            absolute_part=$(date -d "$utc_iso_timestamp" +"%b %e, %Y")
+        elif [ "$DATE_COMMAND_TYPE" == "bsd" ]; then
+            absolute_part=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" -u "$utc_iso_timestamp" +"%b %e, %Y")
+        else # Fallback
+            absolute_part=$(echo "$utc_iso_timestamp" | cut -dT -f1)
+        fi
+    fi
+    # Remove leading space from day if %e was used and day < 10
+    absolute_part=$(echo "$absolute_part" | sed 's/  / /g')
+
+    final_formatted_date="$relative_part ($absolute_part)"
+    echo "$final_formatted_date"
+}
+
+dim="\033[2m"
+reset="\033[0m"
+
+echo "Fetching open pull requests awaiting your review..."
+echo "$dim(for $CURRENT_GH_USER, excluding dependabot, grouped by repository, then sorted by date)...$reset"
+echo ""
+
+PR_DATA_JSON=$(gh search prs --review-requested=@me --state=open --limit 100 --json repository,title,url,author,createdAt -- -author:dependabot[bot] 2>/dev/null)
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to fetch pull requests from GitHub for $CURRENT_GH_USER."
+    echo "This might be because 'gh' is not authenticated or there was an API issue."
+    exit 1
+fi
+
+if [ -z "$PR_DATA_JSON" ] || ! jq -e . >/dev/null 2>&1 <<<"$PR_DATA_JSON"; then
+    if [ "$PR_DATA_JSON" == "[]" ] || [ -z "$PR_DATA_JSON" ]; then
+    echo "No pull requests found awaiting review for $CURRENT_GH_USER (excluding dependabot)."
+    else
+    echo "Error: Fetched data is not valid JSON or no PRs found for $CURRENT_GH_USER."
+    fi
+    echo "---------------------------------------------------------------------------------"
+    echo "Search complete."
+    exit 0
+fi
+
+echo "Pull Requests Awaiting Your Review"
+echo "==========================================================================="
+
+UNIQUE_REPOS=$(echo "$PR_DATA_JSON" | jq -r '.[].repository.nameWithOwner' | sort -u)
+
+if [ -z "$UNIQUE_REPOS" ]; then
+    echo "No pull requests found awaiting review for $CURRENT_GH_USER (excluding dependabot)."
+else
+    echo "$UNIQUE_REPOS" | while IFS= read -r repo_name; do
+        echo
+        echo "Repo  : $repo_name"
+        echo "-----------------------------------"
+        echo
+
+        echo "$PR_DATA_JSON" | jq -r --arg current_repo "$repo_name" '
+            [ .[] | select(.repository.nameWithOwner == $current_repo) ] |
+            sort_by(.createdAt) |
+            .[] |
+            "\(.createdAt)\t\(.author.login)\t\(.title)\t\(.url)"
+        ' | while IFS=$'\t' read -r pr_created_at pr_author_login pr_title pr_url; do
+            
+            combined_date_format=$(get_formatted_date_with_relative "$pr_created_at")
+            
+            printf "  %s\n" "$pr_title"
+            # Dimmed URL
+            printf "  $dim%s$reset\n" "$pr_url"           
+            printf "  %s\n" "$pr_author_login"
+            # Dimmed date
+            printf "  $dim%s$reset\n" "$combined_date_format"
+            printf "\n\n"
+        done
+    done
+fi
+
+echo "==========================================================================="
+echo "Search complete."
