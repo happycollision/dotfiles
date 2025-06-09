@@ -50,16 +50,20 @@ check_dependencies() {
 
 if [[ "$1" == "--help" || "$1" == "-h" ]]; then
   cat <<EOF
-Usage: $(basename "$0") [--old] [--log] [--dry] [--help]
+Usage: $(basename "$0") [--old] [--log] [--dry] [--all] [--help]
 
-Lists all your open GitHub PRs (updated in the last 2 months by default), grouped by repo,
-and interactively lets you assign reviewers (from past contributors) to selected PRs.
-An interactive menu allows you to select multiple PRs and assign multiple reviewers.
+Lists all your open GitHub PRs, grouped by repo, and interactively lets you assign
+reviewers (from past contributors) to selected PRs. An interactive menu allows
+you to select multiple PRs and assign multiple reviewers.
+
+By default we will filter out PRs that already have reviewers assigned or whose
+last update is older than 2 months.
 
 Options:
-  --old      Do not filter out PRs older than 2 months
+  --old      Include PRs older than 2 months
   --log      Enable debug logging to ./pr-debug.log
   --dry      Dry run - show what would be done without actually assigning reviewers.
+  --all      Include PRs with existing reviewers (and display current reviewers)
   --help     Show this help message.
 
 Dependencies:
@@ -95,11 +99,13 @@ USER=$(gh api user --jq .login)
 SHOW_OLD=0
 DEBUG_LOG=0
 DRY_RUN=0
+SHOW_ALL=0
 for arg in "$@"; do
   case "$arg" in
     --old) SHOW_OLD=1 ;;
     --log) DEBUG_LOG=1 ;;
     --dry) DRY_RUN=1 ;;
+    --all) SHOW_ALL=1 ;;
   esac
 done
 
@@ -110,7 +116,7 @@ debug_log() {
   fi
 }
 
-# List all open PRs authored by the current user across all repos, including updatedAt
+# List all open PRs authored by the current user across all repos, including updatedAt and reviewers
 gh search prs --author "$USER" --state open --json number,title,repository,url,updatedAt \
   -q '.[] | "\(.repository.nameWithOwner)|\(.number)|\(.title)|\(.url)|\(.updatedAt)"' > /tmp/prs.txt
 
@@ -119,8 +125,18 @@ PRS=()
 # Use BSD/macOS compatible date calculation
 CUTOFF_DATE=$(date -u -v-2m +%Y-%m-%dT%H:%M:%SZ)
 while IFS= read -r line; do
-  # Split line to get updatedAt
-  UPDATED_AT=$(echo "$line" | awk -F'|' '{print $5}')
+  # Split line to get repo and PR number for reviewer check
+  IFS='|' read -r REPO PR_NUMBER PR_TITLE PR_URL UPDATED_AT <<< "$line"
+  
+  # Check if PR has existing reviewers (unless --all is used)
+  if [[ $SHOW_ALL -eq 0 ]]; then
+    EXISTING_REVIEWERS=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json reviewRequests -q '.reviewRequests | length')
+    if [[ "$EXISTING_REVIEWERS" -gt 0 ]]; then
+      debug_log "DEBUG: Skipping PR $REPO #$PR_NUMBER - already has $EXISTING_REVIEWERS reviewers"
+      continue
+    fi
+  fi
+  
   if [[ $SHOW_OLD -eq 1 || -z "$UPDATED_AT" ]]; then
     PRS+=("$line")
   else
@@ -132,11 +148,20 @@ while IFS= read -r line; do
 done < /tmp/prs.txt
 
 if [ ${#PRS[@]} -eq 0 ]; then
-  if [[ $SHOW_OLD -eq 1 ]]; then
-    echo "No open PRs found for user $USER."
+  if [[ $SHOW_ALL -eq 1 ]]; then
+    if [[ $SHOW_OLD -eq 1 ]]; then
+      echo "No open PRs found for user $USER."
+    else
+      echo "No open PRs updated in the last 2 months for user $USER."
+      echo "Use --old to see all open PRs."
+    fi
   else
-    echo "No open PRs updated in the last 2 months for user $USER."
-    echo "Use --old to see all open PRs."
+    if [[ $SHOW_OLD -eq 1 ]]; then
+      echo "No open PRs without existing reviewers found for user $USER."
+    else
+      echo "No open PRs without existing reviewers updated in the last 2 months for user $USER."
+      echo "Use --old to see all open PRs, or --all to include PRs with existing reviewers."
+    fi
   fi
   exit 0
 fi
@@ -347,10 +372,21 @@ for idx in "${!REPO_LIST[@]}"; do
     IFS='|' read -r PR_NUMBER PR_TITLE PR_URL UPDATED_AT <<< "$PR_LINE"
     
     # Add PR title line (selectable)
-    PR_DISPLAY_LIST+=("  $PR_TITLE")
+    PR_DISPLAY_LIST+=(" $PR_TITLE")
     INDEX_TO_PR[$INDEX]="$REPO|$PR_NUMBER|$PR_TITLE|$PR_URL"
     PR_SELECTABLE[$INDEX]=1  # Selectable
     INDEX=$((INDEX+1))
+    
+    # Add existing reviewers if --all flag is used
+    if [[ $SHOW_ALL -eq 1 ]]; then
+      EXISTING_REVIEWERS=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json reviewRequests -q '.reviewRequests[].login' 2>/dev/null | tr '\n' ',' | sed 's/,/, /g' | sed 's/, $//')
+      if [[ -n "$EXISTING_REVIEWERS" ]]; then
+        PR_DISPLAY_LIST+=("     \033[2mReviewers:\033[0m \033[38;5;33m$EXISTING_REVIEWERS\033[0m")
+        INDEX_TO_PR[$INDEX]=""  # Empty entry for reviewer line
+        PR_SELECTABLE[$INDEX]=0  # Not selectable
+        INDEX=$((INDEX+1))
+      fi
+    fi
     
     # Add PR URL line (not selectable, dimmed)
     PR_DISPLAY_LIST+=("     \033[2m$PR_URL\033[0m")
