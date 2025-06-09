@@ -50,14 +50,14 @@ check_dependencies() {
 
 if [[ "$1" == "--help" || "$1" == "-h" ]]; then
   cat <<EOF
-Usage: $(basename "$0") [--all] [--log] [--dry] [--help]
+Usage: $(basename "$0") [--old] [--log] [--dry] [--help]
 
 Lists all your open GitHub PRs (updated in the last 2 months by default), grouped by repo,
 and interactively lets you assign reviewers (from past contributors) to selected PRs.
 An interactive menu allows you to select multiple PRs and assign multiple reviewers.
 
 Options:
-  --all      Show all open PRs, regardless of last update time.
+  --old      Do not filter out PRs older than 2 months
   --log      Enable debug logging to ./pr-debug.log
   --dry      Dry run - show what would be done without actually assigning reviewers.
   --help     Show this help message.
@@ -77,7 +77,7 @@ After installing gh, run 'gh auth login' to authenticate.
 
 Examples:
   $(basename "$0")
-  $(basename "$0") --all
+  $(basename "$0") --old
   $(basename "$0") --log
   $(basename "$0") --dry
 
@@ -92,12 +92,12 @@ check_dependencies
 USER=$(gh api user --jq .login)
 
 # Check for arguments
-SHOW_ALL=0
+SHOW_OLD=0
 DEBUG_LOG=0
 DRY_RUN=0
 for arg in "$@"; do
   case "$arg" in
-    --all) SHOW_ALL=1 ;;
+    --old) SHOW_OLD=1 ;;
     --log) DEBUG_LOG=1 ;;
     --dry) DRY_RUN=1 ;;
   esac
@@ -121,7 +121,7 @@ CUTOFF_DATE=$(date -u -v-2m +%Y-%m-%dT%H:%M:%SZ)
 while IFS= read -r line; do
   # Split line to get updatedAt
   UPDATED_AT=$(echo "$line" | awk -F'|' '{print $5}')
-  if [[ $SHOW_ALL -eq 1 || -z "$UPDATED_AT" ]]; then
+  if [[ $SHOW_OLD -eq 1 || -z "$UPDATED_AT" ]]; then
     PRS+=("$line")
   else
     # Only include PRs updated within the last 2 months
@@ -132,11 +132,11 @@ while IFS= read -r line; do
 done < /tmp/prs.txt
 
 if [ ${#PRS[@]} -eq 0 ]; then
-  if [[ $SHOW_ALL -eq 1 ]]; then
+  if [[ $SHOW_OLD -eq 1 ]]; then
     echo "No open PRs found for user $USER."
   else
     echo "No open PRs updated in the last 2 months for user $USER."
-    echo "Use --all to see all open PRs."
+    echo "Use --old to see all open PRs."
   fi
   exit 0
 fi
