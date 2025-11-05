@@ -504,29 +504,35 @@ fi
 echo "Assigning reviewers [${REVIEWERS[*]}] to ${#SELECTED_PRS[@]} PRs..."
 echo
 
+# Track success/failure counts
+SUCCESS_COUNT=0
+FAILURE_COUNT=0
+
 # Apply reviewers to all selected PRs
 for pr_info in "${SELECTED_PRS[@]}"; do
   IFS='|' read -r REPO PR_NUMBER PR_TITLE PR_URL <<< "$pr_info"
-  
+
   # Create comma-separated reviewer list for gh CLI
   REVIEWER_LIST=$(IFS=','; echo "${REVIEWERS[*]}")
-  
+
   debug_log "DEBUG: About to assign reviewers to $REPO #$PR_NUMBER"
   debug_log "DEBUG: Reviewers array: [${REVIEWERS[*]}]"
   debug_log "DEBUG: Comma-separated reviewers: $REVIEWER_LIST"
   debug_log "DEBUG: Command will be: gh pr edit $PR_NUMBER --repo $REPO --add-reviewer $REVIEWER_LIST"
-  
+
   if [[ $DRY_RUN -eq 1 ]]; then
     echo "🔍 [DRY RUN] Would assign reviewers [$REVIEWER_LIST] to $REPO #$PR_NUMBER: $PR_TITLE"
     debug_log "DEBUG: DRY RUN - skipping actual assignment for $REPO #$PR_NUMBER"
   else
-    # Execute the command and capture both stdout and stderr
-    if gh pr edit "$PR_NUMBER" --repo "$REPO" --add-reviewer "$REVIEWER_LIST" 2>&1; then
+    # Execute the command and suppress output, only check exit code
+    if gh pr edit "$PR_NUMBER" --repo "$REPO" --add-reviewer "$REVIEWER_LIST" >/dev/null 2>&1; then
       echo "✓ Assigned to $REPO #$PR_NUMBER: $PR_TITLE"
       debug_log "DEBUG: Successfully assigned reviewers to $REPO #$PR_NUMBER"
+      ((SUCCESS_COUNT++))
     else
       echo "✗ Failed to assign reviewers to $REPO #$PR_NUMBER: $PR_TITLE"
       debug_log "DEBUG: Failed to assign reviewers to $REPO #$PR_NUMBER"
+      ((FAILURE_COUNT++))
     fi
   fi
 done
@@ -535,5 +541,13 @@ echo
 if [[ $DRY_RUN -eq 1 ]]; then
   echo "🔍 [DRY RUN] Would have assigned [${REVIEWERS[*]}] to ${#SELECTED_PRS[@]} PRs."
 else
-  echo "Done! Assigned [${REVIEWERS[*]}] to ${#SELECTED_PRS[@]} PRs."
+  if [[ $FAILURE_COUNT -eq 0 ]]; then
+    echo "Done! Successfully assigned [${REVIEWERS[*]}] to ${SUCCESS_COUNT} PRs."
+  elif [[ $SUCCESS_COUNT -eq 0 ]]; then
+    echo "Failed! Could not assign reviewers to any of the ${FAILURE_COUNT} PRs."
+    exit 1
+  else
+    echo "Partially done. Assigned to ${SUCCESS_COUNT} PRs, failed on ${FAILURE_COUNT} PRs."
+    exit 1
+  fi
 fi
