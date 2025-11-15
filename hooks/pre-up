@@ -4,7 +4,7 @@ echo "Before running rcup... we are grabbing a few things."
 
 # Git Jaspr
 
-expected_git_jaspr_version="v25-beta"
+expected_git_jaspr_version="v26-beta"
 
 # function to install the latest version of git-jaspr
 install_git_jaspr() {
