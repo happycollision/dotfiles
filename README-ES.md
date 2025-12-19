@@ -218,7 +218,6 @@ Configuración para [git](http://git-scm.com/):
 Configuración de [Ruby](https://www.ruby-lang.org/en/):
 
 * Agrega binstubs confiables al `PATH`.
-* Descarga el administrador de versiones ASDF.
 
 Alias de Shell y scripts:
 

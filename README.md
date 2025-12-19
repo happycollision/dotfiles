@@ -219,7 +219,6 @@ configuration:
 [Ruby](https://www.ruby-lang.org/en/) configuration:
 
 * Add trusted binstubs to the `PATH`.
-* Load the ASDF version manager.
 * Load `mise` version manager.
 
 Shell aliases and scripts:

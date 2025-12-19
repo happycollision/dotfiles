@@ -22,23 +22,6 @@ Try \`rcup' again after first installing Homebrew with
 MSG
 fi
 
-# Add asdf
-if ! command -v asdf &> /dev/null; then
-  if ! command -v brew &> /dev/null; then
-    echo "Cannot install asdf without brew"
-  else
-    echo "Installing asdf"
-    brew install asdf
-  fi
-fi
-
-# asdf: if nodejs is installed, do keyring stuff
-if command -v asdf &> /dev/null; then
-  if [[ -f ~/.asdf/plugins/nodejs/bin/import-release-team-keyring ]]; then
-    echo "Importing nodejs keyring (from asdf's nodejs plugin)"
-    ~/.asdf/plugins/nodejs/bin/import-release-team-keyring
-  fi
-fi
 # reset -Q
 
 # Add mise
