@@ -73,3 +73,9 @@ case ":$PATH:" in
   *) export PATH="$PATH:$PNPM_HOME" ;;
 esac
 # pnpm end
+
+# mise
+# if installed, activate. See post-up hook for installation
+if command -v mise &> /dev/null; then
+  eval "$(mise activate zsh)"
+fi

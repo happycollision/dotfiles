@@ -41,6 +41,16 @@ if command -v asdf &> /dev/null; then
 fi
 # reset -Q
 
+# Add mise
+if ! command -v mise &> /dev/null; then
+  if ! command -v brew &> /dev/null; then
+    echo "Cannot install mise without brew"
+  else
+    echo "Installing mise"
+    brew install mise
+  fi
+fi
+
 # detect old OS X broken /etc/zshenv and suggest rename
 if grep -qw path_helper /etc/zshenv 2>/dev/null; then
   dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
