@@ -16,3 +16,4 @@ rerun.txt
 tmp/**/*
 /tags
 /bin/git-jaspr
+.claude
