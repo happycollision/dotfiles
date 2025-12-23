@@ -50,8 +50,6 @@ _load_settings "$HOME/.zsh/configs"
 # uninstall by removing these lines or running `tabtab uninstall slss`
 [[ -f ~/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/slss.zsh ]] && . ~/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/slss.zsh
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
-export VOLTA_HOME="$HOME/.volta"
-export PATH="$VOLTA_HOME/bin:$PATH"
 
 # Add Visual Studio Code (code)
 export PATH="$PATH:/Applications/Visual Studio Code.app/Contents/Resources/app/bin"
@@ -65,14 +63,6 @@ export PATH="$BUN_INSTALL/bin:$PATH"
 
 # Claude code needs to see ~/.local/bin
 export PATH="$HOME/.local/bin:$PATH"
-
-# pnpm
-export PNPM_HOME="$HOME/Library/pnpm"
-case ":$PATH:" in
-  *":$PNPM_HOME:"*) ;;
-  *) export PATH="$PATH:$PNPM_HOME" ;;
-esac
-# pnpm end
 
 # mise
 # if installed, activate. See post-up hook for installation

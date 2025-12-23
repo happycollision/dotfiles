@@ -27,3 +27,7 @@ MSG
 fi
 
 unset _old_path
+
+# mise shims for non-interactive shells (VS Code, scripts, etc.)
+# This must be in .zshenv since .zprofile only runs for login shells
+export PATH="$HOME/.local/share/mise/shims:$PATH"
