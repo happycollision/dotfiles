@@ -4,6 +4,3 @@
 # exclude patterns (uncomment them if you want to use them):
 # *.[oa]
 # *~
-
-# Beads: prevent fork from committing upstream issue database
-.beads/issues.jsonl

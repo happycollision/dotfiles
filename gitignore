@@ -16,4 +16,6 @@ rerun.txt
 tmp/**/*
 /tags
 /bin/git-jaspr
-.claude
+
+# Beads: prevent fork from committing upstream issue database
+.beads/issues.jsonl
