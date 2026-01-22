@@ -69,3 +69,5 @@ export PATH="$HOME/.local/bin:$PATH"
 if command -v mise &> /dev/null; then
   eval "$(mise activate zsh)"
 fi
+
+export PATH="/Users/don.denton/.spry/bin:$PATH"
