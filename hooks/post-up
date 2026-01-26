@@ -2,8 +2,6 @@
 
 echo "Initial setup complete. Now doing post-up tasks."
 
-touch "$HOME"/.psqlrc.local
-
 if ! command -v brew &> /dev/null; then
   cat <<MSG >&2
 Homebrew is not installed.
