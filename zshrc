@@ -40,15 +40,6 @@ _load_settings "$HOME/.zsh/configs"
 # aliases
 [[ -f ~/.aliases ]] && source ~/.aliases
 
-# tabtab source for serverless package
-# uninstall by removing these lines or running `tabtab uninstall serverless`
-[[ -f ~/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/serverless.zsh ]] && . ~/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/serverless.zsh
-# tabtab source for sls package
-# uninstall by removing these lines or running `tabtab uninstall sls`
-[[ -f ~/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/sls.zsh ]] && . ~/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/sls.zsh
-# tabtab source for slss package
-# uninstall by removing these lines or running `tabtab uninstall slss`
-[[ -f ~/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/slss.zsh ]] && . ~/.npm/_npx/4152/lib/node_modules/serverless/node_modules/tabtab/.completions/slss.zsh
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 
 # Add Visual Studio Code (code)
