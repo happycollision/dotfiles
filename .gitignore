@@ -1,5 +1,4 @@
-!bin
-vim/bundle/
+/bin/git-jaspr
 
 # Claude Code - ignore local settings, keep shared settings
 .claude/settings.local.json
