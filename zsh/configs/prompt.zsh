@@ -1,4 +1,5 @@
 # Git-aware prompt showing branch and path from repo root
+# Prints on separate line before the main prompt
 # Output examples:
 #   In git repo:     "[master] dotfiles/zsh/configs"
 #   With changes:    "[master*] dotfiles/zsh/configs"
@@ -13,12 +14,12 @@
 #   Branch name:       green
 #   Repo location:     cyan
 #   Path from root:    blue
-git_prompt_info() {
+_print_git_and_path() {
   local repo_root=$(git rev-parse --show-toplevel 2> /dev/null)
 
   if [[ -z $repo_root ]]; then
     # Not in a git repo, show regular path
-    echo "%{$fg_bold[blue]%}%2c%{$reset_color%}"
+    print -P "%F{blue}%B%2c%b%f"
     return
   fi
 
@@ -72,30 +73,28 @@ git_prompt_info() {
     repo_location=$(basename "$repo_root")
   fi
 
-  # Build the prompt
-  local branch_part="%{$fg_bold[green]%}[$current_branch$git_status]%{$reset_color%}"
-  local location_part="%{$fg_bold[cyan]%}$repo_location%{$reset_color%}"
-
+  # Build and print the prompt
   if [[ -n $path_from_root ]]; then
-    # We're in a subdirectory
-    location_part="$location_part%{$fg_bold[blue]%}/$path_from_root%{$reset_color%}"
+    # We're in a subdirectory - repo location in cyan, path from root in blue
+    print -P "%F{green}%B[${current_branch}${git_status}]%b%f %F{cyan}%B${repo_location}%b%f%F{blue}%B/${path_from_root}%b%f"
+  else
+    # At repo root - just show repo location in cyan
+    print -P "%F{green}%B[${current_branch}${git_status}]%b%f %F{cyan}%B${repo_location}%b%f"
   fi
-
-  echo "$branch_part $location_part"
 }
 
-# Claude status indicators
+# Claude status indicators (for inline prompt)
 # Output examples:
 #   Both issues:     "🤖❗🤖⚠️"
 #   Not configured:  "🤖❗"
 #   Exclude conflict: "🤖⚠️"
 #   No issues:       "" (empty)
 claude_status() {
-  claude_not_configured && echo "🤖❗"
-  claude_exclude_conflict && echo "🤖⚠️"
+  claude_not_configured && echo -n "🤖❗"
+  claude_exclude_conflict && echo -n "🤖⚠️"
 }
 
-# SSH connection info
+# SSH connection info (for inline prompt)
 # Output examples:
 #   Via SSH:     "user@hostname:"
 #   Local:       "" (empty)
@@ -105,10 +104,14 @@ ssh_info() {
   fi
 }
 
+# Register hooks (allows multiple hooks without conflicts)
+# Hooks execute in registration order
+autoload -Uz add-zsh-hook
+add-zsh-hook precmd _print_git_and_path
+
 setopt promptsubst
 
 # Allow exported PS1 variable to override default prompt.
 if ! env | grep -q '^PS1='; then
-  PS1='$(claude_status)$(ssh_info)$(git_prompt_info)
-❯ '
+  PS1='$(claude_status)$(ssh_info)❯ '
 fi
