@@ -104,9 +104,45 @@ ssh_info() {
   fi
 }
 
+
+# Command execution time tracking
+# Captures start time before command execution
+_timer_preexec() {
+  __cmd_start_time=$(date +%s)
+}
+
+# Print execution time before showing prompt
+# Output examples:
+#   Fast commands:   (nothing printed)
+#   1-59 seconds:    "[2s]" on separate line
+#   Minutes:         "[1m 30s]" on separate line
+#   Hours:           "[1h 5m 23s]" on separate line
+_timer_precmd() {
+  if [[ -n $__cmd_start_time ]]; then
+    local elapsed=$(( $(date +%s) - $__cmd_start_time ))
+    unset __cmd_start_time
+
+    # Only show if command took 1 second or more
+    if [[ $elapsed -ge 1 ]]; then
+      local hours=$((elapsed / 3600))
+      local minutes=$(((elapsed % 3600) / 60))
+      local seconds=$((elapsed % 60))
+
+      local time_str=""
+      [[ $hours -gt 0 ]] && time_str="${hours}h "
+      [[ $minutes -gt 0 ]] && time_str="${time_str}${minutes}m "
+      time_str="${time_str}${seconds}s"
+
+      print -P "%F{yellow}[${time_str}]%f"
+    fi
+  fi
+}
+
 # Register hooks (allows multiple hooks without conflicts)
 # Hooks execute in registration order
 autoload -Uz add-zsh-hook
+add-zsh-hook preexec _timer_preexec
+add-zsh-hook precmd _timer_precmd
 add-zsh-hook precmd _print_git_and_path
 
 setopt promptsubst
