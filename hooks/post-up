@@ -2,6 +2,19 @@
 
 echo "Initial setup complete. Now doing post-up tasks."
 
+# Automatically set --skip-worktree on gitconfig to prevent app modifications
+# from showing up in git status. This is because ~/.gitconfig is symlinked and
+# some apps (like Kaleidoscope, VSCode, etc.) auto-modify it.
+#
+# To commit intentional changes to gitconfig:
+#   1. git update-index --no-skip-worktree gitconfig
+#   2. Make your changes and commit
+#   3. git update-index --skip-worktree gitconfig (or just run rcup again)
+#
+# Some IDEs may also allow you to stage directly without unskipping. But once
+# you stage something, the whole file is unskipped again, so be careful.
+(cd "$HOME/dotfiles" && git update-index --skip-worktree gitconfig 2>/dev/null)
+
 if ! command -v brew &> /dev/null; then
   cat <<MSG >&2
 Homebrew is not installed.
