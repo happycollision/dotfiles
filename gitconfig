@@ -31,7 +31,6 @@
 [user]
 	name = Don Denton
 	email = don@happycollision.com
-	signingkey = FA2F64CCC6BBACF9
 [mergetool]
 	keepBackup = true
 [credential]
