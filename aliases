@@ -8,11 +8,6 @@ alias v="$VISUAL"
 # Pretty print the path
 alias path='echo $PATH | tr -s ":" "\n"'
 
-# NPM
-alias n="npm run"
-
-alias p="pnpm run"
-
 # Git
 alias gall='git add --all'
 alias gc='git commit'

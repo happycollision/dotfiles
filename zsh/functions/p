@@ -1,0 +1,204 @@
+# Package manager auto-detection functions
+#
+# Automatically detects the package manager (npm, pnpm, yarn, or bun) based on
+# lockfiles in the current directory and provides unified command interfaces.
+#
+# Detection priority:
+#   1. bun.lock or bun.lockb → bun
+#   2. pnpm-lock.yaml → pnpm
+#   3. package-lock.json or npm-shrinkwrap.json → npm
+#   4. yarn.lock → yarn
+#   5. No lockfile → error (no default assumed)
+
+# _detect_package_manager()
+#
+# Internal helper function to detect which package manager is being used.
+#
+# Returns:
+#   Echoes the package manager name (npm, pnpm, yarn, or bun)
+#   Returns 1 and prints error if no lockfile found
+_detect_package_manager() {
+  if [[ -f "bun.lock" ]] || [[ -f "bun.lockb" ]]; then
+    echo "bun"
+  elif [[ -f "pnpm-lock.yaml" ]]; then
+    echo "pnpm"
+  elif [[ -f "package-lock.json" ]] || [[ -f "npm-shrinkwrap.json" ]]; then
+    echo "npm"
+  elif [[ -f "yarn.lock" ]]; then
+    echo "yarn"
+  else
+    echo "Error: No package manager lockfile found (bun.lock, bun.lockb, pnpm-lock.yaml, package-lock.json, or yarn.lock)" >&2
+    return 1
+  fi
+}
+
+# p [command|script] [args...]
+#
+# Universal package manager command wrapper. Automatically detects the package
+# manager and runs the appropriate command.
+#
+# Usage:
+#   p <script>         Run a package.json script (npm run, pnpm run, etc.)
+#   p i [packages...]  Install dependencies (shortcut for pi)
+#   p x <command>      Execute local binary (shortcut for px)
+#   p t [args...]      Run typecheck script (shortcut for pt)
+#
+# Examples:
+#   p dev              # Run dev script
+#   p build            # Run build script
+#   p i                # Install all dependencies
+#   p i -D typescript  # Install typescript as dev dependency
+#   p x eslint .       # Execute local eslint binary
+#   p t                # Run typecheck script
+p() {
+  local pm=$(_detect_package_manager) || return 1
+
+  # Handle special shortcuts
+  case "$1" in
+    i)
+      shift
+      $pm install "$@"
+      ;;
+    x)
+      shift
+      case $pm in
+        npm)
+          npx "$@"
+          ;;
+        pnpm)
+          pnpm exec "$@"
+          ;;
+        yarn)
+          yarn exec "$@"
+          ;;
+        bun)
+          bunx "$@"
+          ;;
+      esac
+      ;;
+    t)
+      shift
+      # Try to find a typecheck script
+      if command -v jq &> /dev/null && [[ -f "package.json" ]]; then
+        local scripts=$(jq -r '.scripts | keys[]' package.json 2>/dev/null)
+        local typecheck_script=""
+
+        # Look for common typecheck script names
+        for script in typecheck type-check types; do
+          if echo "$scripts" | grep -q "^${script}$"; then
+            typecheck_script=$script
+            break
+          fi
+        done
+
+        if [[ -n "$typecheck_script" ]]; then
+          $pm run "$typecheck_script" "$@"
+        else
+          echo "Error: No typecheck script found (tried: typecheck, type-check, types)" >&2
+          return 1
+        fi
+      else
+        echo "Error: package.json not found or jq not installed" >&2
+        return 1
+      fi
+      ;;
+    *)
+      $pm run "$@"
+      ;;
+  esac
+}
+
+# pi [packages...]
+#
+# Install dependencies using the auto-detected package manager.
+#
+# Usage:
+#   pi                 Install all dependencies from package.json
+#   pi <package>       Install specific package(s)
+#   pi -D <package>    Install as dev dependency
+#
+# Examples:
+#   pi                 # Install all dependencies
+#   pi lodash          # Install lodash
+#   pi -D typescript   # Install typescript as dev dependency
+pi() {
+  local pm=$(_detect_package_manager) || return 1
+  $pm install "$@"
+}
+
+# px <command> [args...]
+#
+# Execute local binaries using the auto-detected package manager's exec command.
+# Runs binaries from node_modules/.bin without requiring global installation.
+#
+# Maps to:
+#   npm  → npx
+#   pnpm → pnpm exec
+#   yarn → yarn exec
+#   bun  → bunx
+#
+# Examples:
+#   px eslint .        # Run local eslint
+#   px tsc             # Run local TypeScript compiler
+#   px prettier --write # Run local prettier
+px() {
+  local pm=$(_detect_package_manager) || return 1
+
+  case $pm in
+    npm)
+      npx "$@"
+      ;;
+    pnpm)
+      pnpm exec "$@"
+      ;;
+    yarn)
+      yarn exec "$@"
+      ;;
+    bun)
+      bunx "$@"
+      ;;
+  esac
+}
+
+# pt [args...]
+#
+# Run typecheck script using the auto-detected package manager.
+# Automatically searches for and runs the first matching script in package.json.
+#
+# Searches for scripts in this order:
+#   1. typecheck
+#   2. type-check
+#   3. types
+#
+# Requires jq to be installed for parsing package.json.
+#
+# Examples:
+#   pt                 # Run typecheck script
+#   pt --watch         # Run typecheck with watch flag
+pt() {
+  local pm=$(_detect_package_manager) || return 1
+
+  # Try to find a typecheck script
+  if command -v jq &> /dev/null && [[ -f "package.json" ]]; then
+    local scripts=$(jq -r '.scripts | keys[]' package.json 2>/dev/null)
+    local typecheck_script=""
+
+    # Look for common typecheck script names
+    for script in typecheck type-check types; do
+      if echo "$scripts" | grep -q "^${script}$"; then
+        typecheck_script=$script
+        break
+      fi
+    done
+
+    if [[ -n "$typecheck_script" ]]; then
+      $pm run "$typecheck_script" "$@"
+    else
+      echo "Error: No typecheck script found (tried: typecheck, type-check, types)" >&2
+      return 1
+    fi
+  else
+    echo "Error: package.json not found or jq not installed" >&2
+    return 1
+  fi
+}
