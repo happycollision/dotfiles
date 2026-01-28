@@ -1,0 +1,15 @@
+#!/bin/sh
+
+# Clean up broken symlinks pointing to dotfiles directories
+# This runs after rcdn removes symlinks, cleaning up any that were orphaned
+# when files were removed from dotfiles without running rcdn first
+echo "[post-down hook] Checking for broken symlinks to dotfiles..."
+for dotfiles_dir in "$HOME/dotfiles-local" "$HOME/dotfiles"; do
+  if [ -d "$dotfiles_dir" ]; then
+    # Find all broken symlinks in $HOME that point to this dotfiles directory
+    find "$HOME" -maxdepth 5 -type l ! -exec test -e {} \; -lname "$dotfiles_dir/*" -print0 2>/dev/null | while IFS= read -r -d '' broken_link; do
+      echo "[post-down hook] Removing broken symlink: $broken_link -> $(readlink "$broken_link")"
+      rm "$broken_link"
+    done
+  fi
+done
