@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+#
+# kill-zombies: Find and kill orphaned processes from Electron apps
+# (GitKraken, Nx Language Server, nx-mcp, etc.)
+#
+# Safe to run anytime — only kills processes whose parent app is no longer running,
+# or whose parent VSCode window process has died.
+
+set -euo pipefail
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m'
+
+DRY_RUN=false
+if [[ "${1:-}" == "--dry-run" ]]; then
+  DRY_RUN=true
+  echo -e "${YELLOW}Dry run mode — no processes will be killed${NC}\n"
+fi
+
+killed=0
+
+kill_orphans() {
+  local app_name="$1"
+  local process_pattern="$2"
+
+  if pgrep -xq "$app_name" 2>/dev/null; then
+    echo -e "${GREEN}$app_name is running${NC} — skipping ${process_pattern}"
+    return
+  fi
+
+  local pids
+  pids=$(pgrep -f "$process_pattern" 2>/dev/null || true)
+
+  if [[ -z "$pids" ]]; then
+    return
+  fi
+
+  echo -e "${RED}$app_name is NOT running${NC} — killing orphaned processes:"
+  for pid in $pids; do
+    local cmd
+    cmd=$(ps -p "$pid" -o args= 2>/dev/null | head -c 120)
+    echo "  PID $pid: $cmd"
+    if ! $DRY_RUN; then
+      kill -9 "$pid" 2>/dev/null && killed=$((killed + 1)) || true
+    else
+      killed=$((killed + 1))
+    fi
+  done
+}
+
+# GitKraken orphans (PTY host, renderers)
+kill_orphans "GitKraken" "GitKraken Helper"
+
+# Nx Console language server and MCP orphans (only when VSCode is fully closed)
+kill_orphans "Code" "nxls/main.js"
+kill_orphans "Code" "nx-mcp"
+kill_orphans "Code" "nx.js mcp"
+
+# Even if VSCode is running, kill nxls instances whose parent window is dead.
+# nxls gets --clientProcessId=<pid> — if that pid is gone, nxls is orphaned.
+for pid in $(pgrep -f "nxls/main.js" 2>/dev/null || true); do
+  client_pid=$(ps -p "$pid" -o args= 2>/dev/null \
+    | grep -oE '\-\-clientProcessId=[0-9]+' \
+    | cut -d= -f2 || true)
+  if [[ -n "$client_pid" ]] && ! kill -0 "$client_pid" 2>/dev/null; then
+    cmd=$(ps -p "$pid" -o args= 2>/dev/null | head -c 120)
+    echo -e "${RED}nxls orphan${NC} (parent PID $client_pid is dead):"
+    echo "  PID $pid: $cmd"
+    if ! $DRY_RUN; then
+      kill -9 "$pid" 2>/dev/null && killed=$((killed + 1)) || true
+    else
+      killed=$((killed + 1))
+    fi
+  fi
+done
+
+echo ""
+if [[ $killed -eq 0 ]]; then
+  echo -e "${GREEN}No zombies found.${NC}"
+else
+  if $DRY_RUN; then
+    echo -e "${YELLOW}Would kill $killed zombie process(es).${NC}"
+  else
+    echo -e "${GREEN}Killed $killed zombie process(es).${NC}"
+  fi
+fi
