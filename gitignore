@@ -15,6 +15,3 @@ log/*.log
 rerun.txt
 tmp/**/*
 /tags
-
-# Beads: prevent fork from committing upstream issue database
-.beads/issues.jsonl
