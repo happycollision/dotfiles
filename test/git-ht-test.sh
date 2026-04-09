@@ -284,7 +284,54 @@ run_all_tests() {
   assert_output_contains "git_ht --help" "destroy" "Help mentions destroy command"
   assert_output_contains "git_ht --help" "setup" "Help mentions setup command"
   assert_output_contains "git_ht bogus-command" "Unknown subcommand" "Unknown subcommand shows error"
-  
+  assert_output_contains "git_ht --help" "list" "Help mentions list command"
+  assert_output_contains "git_ht --help" "ls" "Help mentions ls alias"
+
+  # ============================================================================
+  # Test Group: List
+  # ============================================================================
+  printf "\n${YELLOW}Test Group: List${NC}\n"
+
+  # No linked worktrees yet
+  assert_output_contains "git_ht list" "No linked worktrees" "list with no worktrees shows message"
+
+  # Create a worktree and verify it shows up
+  assert_success "git_ht co list-test-1" "Create worktree for list test"
+  assert_output_contains "git_ht list" "list-test-1" "list shows the created worktree"
+
+  # Verify no warning for properly named worktree
+  list_output=$(git_ht list 2>&1)
+  if echo "$list_output" | grep -q "list-test-1" && ! echo "$list_output" | grep "list-test-1" | grep -q "!"; then
+    TESTS_RUN=$((TESTS_RUN + 1))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    printf "${GREEN}✓${NC} Properly named worktree has no warning\n"
+  else
+    TESTS_RUN=$((TESTS_RUN + 1))
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    printf "${RED}✗${NC} Properly named worktree has no warning\n"
+    printf "  Output: %s\n" "$list_output"
+  fi
+
+  # Create a mismatched worktree (manually add worktree at wrong path)
+  mkdir -p "$SANDBOX/other-location"
+  git worktree add "$SANDBOX/other-location/wrong-path" -b list-mismatch-branch
+  assert_output_contains "git_ht list" "path mismatch" "list flags worktree with path mismatch"
+  assert_output_contains "git_ht list" "list-mismatch-branch" "list shows mismatched worktree branch name"
+
+  # Create a detached HEAD worktree
+  git worktree add --detach "$SANDBOX/other-location/detached-wt" HEAD
+  assert_output_contains "git_ht list" "detached" "list shows detached HEAD worktree"
+  assert_output_contains "git_ht list" "no branch" "list flags detached worktree with no branch warning"
+
+  # ls alias works
+  assert_output_contains "git_ht ls" "list-test-1" "ls alias works"
+
+  # Clean up worktrees for subsequent tests
+  git worktree remove "$SANDBOX/other-location/wrong-path"
+  git worktree remove "$SANDBOX/other-location/detached-wt"
+  git branch -D list-mismatch-branch 2>/dev/null || true
+  git_ht remove list-test-1 --force 2>/dev/null || true
+
   # ============================================================================
   # Test Group 2: Checkout - new branch
   # ============================================================================
