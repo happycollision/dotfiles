@@ -6,12 +6,15 @@ set -e
 
 # Configuration namespace: happy-trees
 # Config keys:
-#   happy-trees.worktreesDir (default: <repo_root>/../<repo_name>.worktrees)
-#   happy-trees.defaultBranch (default: auto-detect, preferring origin)
+#   happy-trees.worktreesDir     (default: <repo_root>/../<repo_name>.worktrees)
+#   happy-trees.defaultBranch    (default: auto-detect, preferring origin)
+#   happy-trees.exec             (default: none)
+#   happy-trees.setupLocation    (default: none)
 #
-# Path tokens supported in worktreesDir:
-#   <repo_root> - absolute path to repository root
-#   <repo_name> - name of the repository (last component of path)
+# Path tokens supported in worktreesDir and setupLocation:
+#   <repo_root>     - absolute path to repository root
+#   <repo_name>     - name of the repository (last component of path)
+#   <worktree_root> - absolute path to target worktree (setupLocation only)
 
 show_help() {
   cat <<EOF
@@ -31,78 +34,98 @@ Why use git-ht?
   allows me to automate all of that.
 
 Commands:
-  help              Show this help message
-  create <tree-name>     Create a new worktree with a new or existing branch
-  remove <tree-name>     Remove a worktree and optionally delete branches
-  setup [tree-name]      Run setup script for a worktree
+  help               Show this help message
+  checkout, co       Switch to or create a worktree
+  remove             Remove a worktree and conditionally delete the local branch
+  destroy            Remove a worktree and delete both local and remote branches
+  setup              Run setup script for a worktree
 
-git ht create <name> [options]:
-  Create a new linked worktree in a given directory.
+git ht checkout [branch [base]] [options]:
+  Create a worktree, or run exec for an existing one.
 
-  By default, creates a new branch starting from the remote default branch,
-  places the worktree in <repo-parent-path>.worktrees/<name>, and automatically
-  runs the setup script if configured (see 'git ht setup --init')
+  If a worktree already exists for [branch], run the exec command (if
+  configured). Otherwise, create a new worktree for [branch]. If no branch by
+  that name exists locally or on any remote, a new branch will also be created
+  starting from [base] (or the remote default branch if [base] is not provided).
+  New worktrees are placed in <worktrees-dir>/<branch> and the setup script is
+  run automatically if configured (see 'git ht setup --init').
+
+  If no [branch] is provided, an interactive selector (requires fzf) will list
+  existing worktrees first, then non-worktree branches (local and remote) sorted
+  by most recent activity.
+
+  Arguments:
+    [branch]  Branch to check out or create a worktree for. If omitted,
+              git-ht will prompt interactively (requires fzf).
+    [base]    Commit-ish to start a new branch from. Defaults to the remote
+              default branch. Only valid when creating a new branch (error if
+              [branch] already exists).
 
   Options:
-    -e, --existing-branch      Use existing branch instead of creating new one
-    
-    -i, --initial-ref <ref>    Start new branch from specific commit
-                               (incompatible with -e)
-    
-    -s, --skip-setup           Skip automatic setup script execution
-    
-    -d, --worktrees-dir <dir>  Specify the worktrees directory location
-                               Supports tokens: <repo_root>, <repo_name>
-                               Default: <repo_root>/../<repo_name>.worktrees
-                                 (configurable via git config)
-    
-    -o, --open-with <command>  Execute command with worktree path after creation
-    
-    -O, --no-open-with         Skip default open command (if configured)
+    -s, --skip-setup       Skip automatic setup script execution. Inferred when
+                           the worktree already exists.
+    -e, --exec <command>   Run command with worktree path after checkout is
+                           complete (overrides git config default)
+    -E, --no-exec          Skip default exec command (if configured)
 
 
 
-git ht remove <name> [options]:
-  Remove a worktree and optionally clean up branches.
+git ht remove [branch] [options]:
+  Remove a worktree.
+
+  If a same-named remote branch exists and points to the exact same commit as
+  the local branch (strict SHA match, no fetch), the local branch will be
+  deleted automatically since it is fully represented on the remote.
+
+  If no [branch] is provided, git-ht will prompt interactively (requires fzf)
+  to select from all currently registered worktrees.
+
+  Note: If you run this from within the worktree being removed, your shell will
+  be left in a stale directory. You will need to cd elsewhere manually.
 
   Options:
     --force                    Remove even if working directory is dirty
-    --delete-branch            Also delete the local branch
-    --delete-remote            Also delete the remote branch
 
 
+git ht destroy [branch] [options]:
+  Remove a worktree and delete both the local and remote branches associated
+  with it if they exist.
 
-git ht setup --init [path]
-git ht setup [branch-name]
-  Initialize or run the setup script for a worktree.
+  Cannot be run on the default branch (local or remote).
+
+  If no [branch] is provided, git-ht will prompt interactively (requires fzf)
+  to select from all currently registered worktrees. The default branch is
+  excluded from the interactive list.
+
+  Note: If you run this from within the worktree being destroyed, your shell
+  will be left in a stale directory. You will need to cd elsewhere manually.
 
   Options:
-    --init [path]              Create a template setup script and configure git
-                               to point at that script.
+    --force                    Remove even if working directory is dirty
 
-                               If path is provided:
-                                 - Relative paths become <repo_root>/path
-                                 - Absolute paths (starting with / or ~) are used as-is
-                                 - Non-.sh extensions get a modified template with a note
-                                   about manual language transcription
 
-                               If no path is provided, defaults to setup-worktree.sh
-                               in the repo root.
 
-  Usage modes:
-    git ht setup --init                    Create setup-worktree.sh in repo root
-    git ht setup --init path/to/script.sh  Create script at specified path
-    git ht setup               Run setup for current worktree (must be inside worktree)
-    git ht setup <branch>      Run setup for specified branch's worktree (from anywhere)
+git ht setup [--init [path]]:
+  Run the setup script for the current worktree, or initialize a new setup
+  script.
+
+  When run without --init, executes the configured setup script against the
+  target worktree. You must be inside a worktree.
 
   The setup script receives two arguments:
     \$1 - Main repository root (absolute path)
     \$2 - Target worktree root (absolute path)
 
-  Note: The setup script must be referenced in git config. It can be anywhere
-  on your computer, but I recommend keeping it in the repo root. If you run
-  \`git ht setup --init\`, it will create a template script and set the config
-  for you.
+  Options:
+    --init [path]   Create a template setup script and configure git to point at
+                    it for all worktrees. Defaults to setup-worktree.sh in the
+                    repo root if no path is given. The resulting path should
+                    probably not be in a worktree since worktrees may be deleted
+                    independently of the main repository.
+                      - Relative paths become <repo_root>/path
+                      - Absolute paths (starting with / or ~) are used as-is
+                      - Non-.sh extensions get a template with a note about
+                        manual language transcription
 
 
 
@@ -110,7 +133,9 @@ Configuration:
   You can customize defaults using standard git config:
 
     git config happy-trees.worktreesDir <path>
-      Set the worktrees directory location
+      Set the worktrees directory location, which serves as the parent directory
+      under which all worktrees will be created.
+
       Default: <repo_root>/../<repo_name>.worktrees
       Supports tokens:
         <repo_root> - absolute path to repository root
@@ -124,17 +149,20 @@ Configuration:
       Set the default starting branch (default: auto-detect from origin)
       Example: git config happy-trees.defaultBranch origin/develop
 
-    git config happy-trees.openWith <command>
-      Set the default command to run after creating a worktree
-      Use --no-open-with to skip when needed
-      Example: git config happy-trees.openWith code
+    git config happy-trees.exec <command>
+      Set the default command to run after checkout completes.
+      The worktree path is passed as the first argument.
+      Use -E / --no-exec to skip when needed.
+      Example: git config happy-trees.exec code
 
     git config happy-trees.setupLocation <path>
-      Set the setup script location (required for setup command)
+      Set the setup script location (required for setup command).
+      The <worktree_root> token resolves to the worktree directory detected
+      from pwd at the time 'git ht setup' is run.
       Supports tokens:
         <repo_root>     - absolute path to repository root
         <repo_name>     - name of the repository
-        <worktree_root> - absolute path to target worktree
+        <worktree_root> - absolute path to current worktree (from pwd)
       Examples:
         git config happy-trees.setupLocation "<repo_root>/setup-worktree.sh"
         git config happy-trees.setupLocation "<repo_root>/.config/setup.sh"
@@ -142,30 +170,48 @@ Configuration:
 
   Use --global flag to set config globally, or omit for repo-specific config.
 
+Technical notes:
+  Directory validation:
+    All commands verify that a worktree's actual directory matches the expected
+    path derived from worktreesDir config. If a mismatch is detected, the
+    command will fail. This can happen if you manually run 'git checkout' inside
+    a worktree to switch its branch — git-ht can no longer reliably determine
+    the worktree's identity and will refuse to operate on it.
+
+  Changing worktreesDir:
+    If you change the happy-trees.worktreesDir setting, existing worktrees
+    created under the old directory will no longer be found by git-ht. You will
+    need to remove them manually with 'git worktree remove' before recreating
+    them under the new location.
+
 Examples:
-  # Get help
-  git ht help
+  # First-time setup
+  git ht setup --init               # Create template setup script
+  vim setup-worktree.sh             # Customize the script
 
-  # Create and setup workflow
-  git ht setup --init                           # Create template setup script
-  vim setup-worktree.sh                         # Customize the script
-  git ht create feature-x                       # Create worktree (setup runs automatically)
+  # Checkout (create or open worktrees)
+  git ht co                         # Interactive branch/worktree selector
+  git ht co new-branch              # Create worktree + new branch from default
+  git ht co new-branch origin/dev   # Same, but from the given ref
+  git ht co existing-branch         # Create worktree from existing branch
+  git ht co existing-branch -s      # Create worktree, skip setup
+  git ht co my-branch -e "code ."   # Execute a command inside worktree
+  git ht co my-branch -E            # Skip default exec (if one exists)
 
-  # Other create examples
-  git ht create bugfix-y -i origin/develop      # Create from specific branch (with auto-setup)
-  git ht create my-tree -e                      # Use existing branch (with auto-setup)
-  git ht create fast-fix --skip-setup           # Skip automatic setup
-  git ht create fast-fix -s                     # Skip automatic setup (short form)
-  git ht create feature-x --open-with code      # Open in VS Code after creation
-  git ht create bugfix-y -o vim                 # Open in Vim after creation
-  git ht create my-tree -o open                 # Open with default app (macOS)
+  # Manual setup
+  git ht setup --init               # Initialize a setup script for worktrees
+  git ht setup --init ../setup.sh   # Initialize with specified script location
+  git ht setup                      # Run setup for current worktree
 
-  # Manual setup (if needed)
-  git ht setup feature-x                        # Run setup manually for a worktree
+  # Remove (worktree only, conditional local branch cleanup)
+  git ht remove feature-x           # Remove worktree
+  git ht remove                     # Same, with interactive worktree selector
+  git ht remove feature-x --force   # Remove even if worktree is dirty
 
-  # Remove examples
-  git ht remove feature-x --delete-branch
-  git ht remove bugfix-y --force --delete-branch --delete-remote
+  # Destroy (worktree + local branch + remote branch)
+  git ht destroy feature-x          # Remove worktree, delete local + remote
+  git ht destroy                    # Same, with interactive worktree selector
+  git ht destroy feature-x --force  # Destroy even if worktree is dirty
 EOF
 }
 
@@ -307,66 +353,241 @@ EOF
 
 # Get worktrees directory path (absolute)
 get_worktrees_dir() {
-  local custom_dir="$1"
   local repo_root=$(get_repo_root)
-  local repo_name=$(get_repo_name)
   local result_dir=""
 
-  if [ -n "$custom_dir" ]; then
-    # Custom directory provided via flag
-    result_dir="$custom_dir"
-  else
-    # Use config or default
-    result_dir=$(get_config "happy-trees.worktreesDir" "<repo_root>/../<repo_name>.worktrees")
-  fi
+  result_dir=$(get_config "happy-trees.worktreesDir" "<repo_root>/../<repo_name>.worktrees")
 
   # Expand tokens
   result_dir=$(expand_path_tokens "$result_dir")
 
   # Make absolute if relative
   if [ "${result_dir#/}" = "$result_dir" ]; then
-    # Relative path - make it relative to repo root
     result_dir="$repo_root/$result_dir"
+  fi
+
+  # Resolve path (e.g., collapse /foo/../bar to /bar)
+  # The directory may not exist yet, so resolve the parent and append the basename
+  local parent=$(dirname "$result_dir")
+  local base=$(basename "$result_dir")
+  if [ -d "$parent" ]; then
+    result_dir="$(cd "$parent" && pwd)/$base"
   fi
 
   echo "$result_dir"
 }
 
-# Create subcommand
-cmd_create() {
-  local name=""
-  local existing_branch=0
-  local initial_ref=""
-  local worktrees_dir_override=""
-  local open_with_cmd=""
-  local no_open_with=0
+# Check that fzf is available (required for interactive selection)
+require_fzf() {
+  if ! command -v fzf >/dev/null 2>&1; then
+    printf "Error: fzf is required for interactive selection\n" >&2
+    printf "Install fzf or provide the branch name as an argument\n" >&2
+    exit 1
+  fi
+}
+
+# Validate that a worktree's actual path matches the expected path from config
+validate_worktree_dir() {
+  local branch="$1"
+  local actual_path=$(get_worktree_path_for_branch "$branch" || true)
+
+  if [ -z "$actual_path" ]; then
+    printf "Error: No worktree found for branch '%s'\n" "$branch" >&2
+    exit 1
+  fi
+
+  local expected_path="$(get_worktrees_dir)/$branch"
+
+  if [ "$actual_path" != "$expected_path" ]; then
+    printf "Error: Worktree directory mismatch for '%s'\n" "$branch" >&2
+    printf "  Expected: %s\n" "$expected_path" >&2
+    printf "  Actual:   %s\n" "$actual_path" >&2
+    printf "\nThis can happen if 'git checkout' was run inside the worktree.\n" >&2
+    printf "git-ht cannot reliably operate on this worktree.\n" >&2
+    exit 1
+  fi
+}
+
+# Check if a branch name matches the default branch (local or remote)
+is_default_branch() {
+  local branch="$1"
+  local default_ref=$(get_remote_default_branch)
+
+  # default_ref might be "origin/main", "origin/master", "main", or "master"
+  # Strip "origin/" prefix if present to get the bare branch name
+  local default_name="${default_ref#origin/}"
+
+  [ "$branch" = "$default_name" ]
+}
+
+# Run exec command with worktree path
+# Args: worktree_path, exec_override, no_exec_flag
+run_exec() {
+  local worktree_path="$1"
+  local exec_override="$2"
+  local no_exec="$3"
+
+  if [ "$no_exec" = "1" ]; then
+    return
+  fi
+
+  local exec_cmd="$exec_override"
+  if [ -z "$exec_cmd" ]; then
+    exec_cmd=$(get_config "happy-trees.exec" "")
+  fi
+
+  if [ -z "$exec_cmd" ]; then
+    return
+  fi
+
+  if command -v "$exec_cmd" >/dev/null 2>&1; then
+    "$exec_cmd" "$worktree_path" || printf "Warning: '%s' command failed\n" "$exec_cmd" >&2
+  else
+    printf "Warning: Command '%s' not found\n" "$exec_cmd" >&2
+  fi
+}
+
+# Interactive fzf selector for existing worktrees
+# Args: exclude_default (0 or 1)
+# Outputs: selected branch name
+select_worktree_interactive() {
+  local exclude_default="$1"
+  require_fzf
+
+  local worktree_list=""
+  local current_path=""
+  local current_branch=""
+
+  while IFS= read -r line; do
+    if echo "$line" | grep -q "^worktree "; then
+      current_path=$(echo "$line" | sed 's/^worktree //')
+    elif echo "$line" | grep -q "^branch "; then
+      current_branch=$(echo "$line" | sed 's|^branch refs/heads/||')
+      # Skip the main repo worktree (it's not a linked worktree)
+      local repo_root=$(get_repo_root)
+      if [ "$current_path" = "$repo_root" ]; then
+        current_path=""
+        current_branch=""
+        continue
+      fi
+      # Skip default branch if requested
+      if [ "$exclude_default" = "1" ] && is_default_branch "$current_branch"; then
+        current_path=""
+        current_branch=""
+        continue
+      fi
+      worktree_list="${worktree_list}${current_branch}\t(worktree: ${current_path})\n"
+      current_path=""
+      current_branch=""
+    elif [ -z "$line" ]; then
+      current_path=""
+      current_branch=""
+    fi
+  done <<WTEOF
+$(git worktree list --porcelain)
+WTEOF
+
+  if [ -z "$worktree_list" ]; then
+    printf "Error: No worktrees found\n" >&2
+    exit 1
+  fi
+
+  local selected
+  selected=$(printf "$worktree_list" | fzf --ansi --prompt="Select worktree: " --header="Worktrees") || exit 1
+  echo "$selected" | awk '{print $1}'
+}
+
+# Interactive fzf selector for checkout — worktrees first, then branches by recency
+# Outputs: selected branch name
+select_branch_interactive() {
+  require_fzf
+
+  local entries=""
+  local repo_root=$(get_repo_root)
+
+  # Collect worktree branches
+  local wt_branches=""
+  local current_path=""
+  local current_branch=""
+
+  while IFS= read -r line; do
+    if echo "$line" | grep -q "^worktree "; then
+      current_path=$(echo "$line" | sed 's/^worktree //')
+    elif echo "$line" | grep -q "^branch "; then
+      current_branch=$(echo "$line" | sed 's|^branch refs/heads/||')
+      if [ "$current_path" != "$repo_root" ]; then
+        entries="${entries}${current_branch}\t(worktree)\n"
+        wt_branches="${wt_branches}${current_branch}\n"
+      fi
+      current_path=""
+      current_branch=""
+    elif [ -z "$line" ]; then
+      current_path=""
+      current_branch=""
+    fi
+  done <<WTEOF
+$(git worktree list --porcelain)
+WTEOF
+
+  # Collect non-worktree branches sorted by most recent commit
+  while IFS= read -r ref; do
+    local name=$(echo "$ref" | sed 's|^refs/heads/||; s|^refs/remotes/||')
+    local bare_name=$(echo "$name" | sed 's|^origin/||')
+
+    # Skip if already a worktree
+    if printf "$wt_branches" | grep -qx "$bare_name"; then
+      continue
+    fi
+
+    # Determine label
+    if echo "$ref" | grep -q "^refs/heads/"; then
+      entries="${entries}${bare_name}\t(local)\n"
+    elif echo "$ref" | grep -q "^refs/remotes/"; then
+      # Skip origin/HEAD
+      if echo "$name" | grep -q "/HEAD$"; then
+        continue
+      fi
+      # Skip if we already listed this as a local branch
+      if printf "$wt_branches" | grep -qx "$bare_name" || echo "$entries" | grep -q "^${bare_name}	"; then
+        continue
+      fi
+      entries="${entries}${bare_name}\t(remote: ${name})\n"
+    fi
+  done <<BREOF
+$(git for-each-ref --sort=-committerdate --format='%(refname)' refs/heads/ refs/remotes/origin/)
+BREOF
+
+  if [ -z "$entries" ]; then
+    printf "Error: No branches found\n" >&2
+    exit 1
+  fi
+
+  local selected
+  selected=$(printf "$entries" | fzf --ansi --prompt="Select branch: " --header="Branches (worktrees listed first)") || exit 1
+  echo "$selected" | awk '{print $1}'
+}
+
+# Checkout subcommand — switch to or create a worktree
+cmd_checkout() {
+  local branch=""
+  local base=""
+  local exec_cmd=""
+  local no_exec=0
   local skip_setup=0
 
   # Parse arguments
   while [ $# -gt 0 ]; do
     case "$1" in
-      -e|--existing-branch)
-        existing_branch=1
-        shift
-        ;;
-      -i|--initial-ref)
-        initial_ref="$2"
-        shift 2
-        ;;
-      -d|--worktrees-dir)
-        worktrees_dir_override="$2"
-        shift 2
-        ;;
-      -o|--open-with)
-        open_with_cmd="$2"
-        shift 2
-        ;;
       -s|--skip-setup)
         skip_setup=1
         shift
         ;;
-      -O|--no-open-with)
-        no_open_with=1
+      -e|--exec)
+        exec_cmd="$2"
+        shift 2
+        ;;
+      -E|--no-exec)
+        no_exec=1
         shift
         ;;
       -*)
@@ -374,8 +595,10 @@ cmd_create() {
         exit 1
         ;;
       *)
-        if [ -z "$name" ]; then
-          name="$1"
+        if [ -z "$branch" ]; then
+          branch="$1"
+        elif [ -z "$base" ]; then
+          base="$1"
         else
           printf "Error: Too many arguments\n" >&2
           exit 1
@@ -385,108 +608,96 @@ cmd_create() {
     esac
   done
 
-  # Validate arguments
-  if [ -z "$name" ]; then
-    printf "Error: worktree name is required\n" >&2
-    exit 1
+  # Interactive selection if no branch provided
+  if [ -z "$branch" ]; then
+    branch=$(select_branch_interactive)
   fi
 
-  if [ $existing_branch -eq 1 ] && [ -n "$initial_ref" ]; then
-    printf "Error: --existing-branch and --initial-ref are mutually exclusive\n" >&2
-    exit 1
-  fi
+  # Check if a worktree already exists for this branch
+  local existing_wt_path=$(get_worktree_path_for_branch "$branch" || true)
+  if [ -n "$existing_wt_path" ]; then
+    # Worktree exists — validate directory and run exec
+    validate_worktree_dir "$branch"
 
-  # Check if branch is currently checked out
-  if is_current_branch "$name"; then
-    printf "Error: Cannot create worktree for currently checked out branch: %s\n" "$name" >&2
-    exit 1
-  fi
-
-  # Handle existing branch logic
-  if [ $existing_branch -eq 1 ]; then
-    # Must exist either locally or remotely
-    if ! branch_exists_local "$name" && ! branch_exists_remote "$name"; then
-      printf "Error: Branch '%s' does not exist (required with --existing-branch)\n" "$name" >&2
+    if [ -n "$base" ]; then
+      printf "Error: [base] argument is not valid when worktree already exists for '%s'\n" "$branch" >&2
       exit 1
     fi
-  else
-    # Must NOT exist locally or remotely
-    if branch_exists_local "$name" || branch_exists_remote "$name"; then
-      printf "Error: Refusing to create %s for an existing branch name without passing the --existing-branch flag\n" "$name" >&2
-      exit 1
-    fi
+
+    printf "Worktree already exists: %s\n" "$existing_wt_path"
+    run_exec "$existing_wt_path" "$exec_cmd" "$no_exec"
+    printf "\nNext steps:\n"
+    printf "  cd %s\n" "$existing_wt_path"
+    return
   fi
 
-  # Determine worktree path
-  worktrees_dir=$(get_worktrees_dir "$worktrees_dir_override")
-  worktree_path="$worktrees_dir/$name"
+  # No existing worktree — need to create one
+  local worktrees_dir=$(get_worktrees_dir)
+  local worktree_path="$worktrees_dir/$branch"
 
-  # Check if worktree directory already exists
+  # Check if worktree directory already exists (stale?)
   if [ -e "$worktree_path" ]; then
-    printf "Error: Worktree directory already exists: %s\n" "$worktree_path" >&2
+    printf "Error: Directory already exists but is not a registered worktree: %s\n" "$worktree_path" >&2
+    printf "Remove it manually if it is stale.\n" >&2
     exit 1
   fi
 
-  # Create worktrees directory if it doesn't exist
   mkdir -p "$worktrees_dir"
 
-  # Create the worktree
-  if [ $existing_branch -eq 1 ]; then
-    # Use existing branch
-    git worktree add "$worktree_path" "$name"
+  # Determine if this is an existing branch or a new one
+  if branch_exists_local "$branch" || branch_exists_remote "$branch"; then
+    # Existing branch
+    if [ -n "$base" ]; then
+      printf "Error: [base] argument is not valid when branch '%s' already exists\n" "$branch" >&2
+      exit 1
+    fi
+    git worktree add "$worktree_path" "$branch"
   else
-    # Create new branch
-    start_point="${initial_ref:-$(get_remote_default_branch)}"
-    git worktree add -b "$name" "$worktree_path" "$start_point"
+    # New branch — create from base or remote default
+    local start_point="${base:-$(get_remote_default_branch)}"
+    git worktree add -b "$branch" "$worktree_path" "$start_point"
   fi
 
   printf "Created worktree at: %s\n" "$worktree_path"
 
-  # Execute command with worktree path if requested
-  # Use config default if no explicit --open-with was provided and --no-open-with wasn't used
-  if [ -z "$open_with_cmd" ] && [ $no_open_with -eq 0 ]; then
-    open_with_cmd=$(get_config "happy-trees.openWith" "")
-  fi
-
-  if [ -n "$open_with_cmd" ] && [ $no_open_with -eq 0 ]; then
-    if command -v "$open_with_cmd" >/dev/null 2>&1; then
-      "$open_with_cmd" "$worktree_path" || printf "Warning: '%s' command failed\n" "$open_with_cmd" >&2
-    else
-      printf "Warning: Command '%s' not found\n" "$open_with_cmd" >&2
-    fi
-  fi
-
-  # Automatically run setup unless skipped
-  if [ $skip_setup -eq 0 ]; then
-    # Check if setup is configured
+  # Run setup unless skipped
+  local suggest_setup=0
+  if [ $skip_setup -eq 1 ]; then
+    suggest_setup=1
+  elif [ $skip_setup -eq 0 ]; then
     local setup_location=$(get_config "happy-trees.setupLocation" "")
     if [ -n "$setup_location" ]; then
-      # Get repo root for token expansion
       local repo_root=$(get_repo_root)
-
-      # Expand tokens in setup location
       local setup_script=$(expand_path_tokens "$setup_location" "$worktree_path")
 
-      # Check if script exists and is executable
       if [ -f "$setup_script" ] && [ -x "$setup_script" ]; then
         printf "\nRunning setup script...\n"
         if "$setup_script" "$repo_root" "$worktree_path"; then
           printf "Setup completed successfully\n"
         else
           printf "Warning: Setup script failed (worktree was still created)\n" >&2
+          suggest_setup=1
         fi
       fi
     fi
   fi
+
+  # Run exec
+  run_exec "$worktree_path" "$exec_cmd" "$no_exec"
+
+  # Suggest next steps
+  printf "\nNext steps:\n"
+  if [ $suggest_setup -eq 1 ]; then
+    printf "  cd %s && git ht setup\n" "$worktree_path"
+  else
+    printf "  cd %s\n" "$worktree_path"
+  fi
 }
 
-# Remove subcommand
+# Remove subcommand — remove worktree, conditionally delete local branch
 cmd_remove() {
   local name=""
   local force=0
-  local delete_branch=0
-  local delete_remote=0
-  local worktrees_dir_override=""
 
   # Parse arguments
   while [ $# -gt 0 ]; do
@@ -495,18 +706,6 @@ cmd_remove() {
         force=1
         shift
         ;;
-      --delete-branch)
-        delete_branch=1
-        shift
-        ;;
-      --delete-remote)
-        delete_remote=1
-        shift
-        ;;
-      -d|--worktrees-dir)
-        worktrees_dir_override="$2"
-        shift 2
-        ;;
       -*)
         printf "Error: Unknown option: %s\n" "$1" >&2
         exit 1
@@ -523,21 +722,16 @@ cmd_remove() {
     esac
   done
 
-  # Validate arguments
+  # Interactive selection if no branch provided
   if [ -z "$name" ]; then
-    printf "Error: worktree name is required\n" >&2
-    exit 1
+    name=$(select_worktree_interactive 0)
   fi
 
-  # Determine worktree path
-  worktrees_dir=$(get_worktrees_dir "$worktrees_dir_override")
-  worktree_path="$worktrees_dir/$name"
+  # Validate worktree directory
+  validate_worktree_dir "$name"
 
-  # Check if worktree exists
-  if ! [ -d "$worktree_path" ]; then
-    printf "Error: Worktree not found: %s\n" "$worktree_path" >&2
-    exit 1
-  fi
+  local worktrees_dir=$(get_worktrees_dir)
+  local worktree_path="$worktrees_dir/$name"
 
   # Remove the worktree
   if [ $force -eq 1 ]; then
@@ -548,32 +742,101 @@ cmd_remove() {
 
   printf "Removed worktree: %s\n" "$worktree_path"
 
-  # Delete local branch if requested
-  if [ $delete_branch -eq 1 ]; then
-    if branch_exists_local "$name"; then
-      git branch -D "$name"
-      printf "Deleted local branch: %s\n" "$name"
-    else
-      printf "Warning: Local branch '%s' does not exist, skipping\n" "$name"
-    fi
-  fi
-
-  # Delete remote branch if requested
-  if [ $delete_remote -eq 1 ]; then
+  # Auto-delete local branch if remote branch exists at same commit
+  if branch_exists_local "$name"; then
     if branch_exists_remote "$name"; then
-      git push origin --delete "$name"
-      printf "Deleted remote branch: %s\n" "$name"
+      local local_sha=$(git rev-parse "refs/heads/$name")
+      local remote_sha=$(git rev-parse "refs/remotes/origin/$name" 2>/dev/null || true)
+
+      if [ -n "$remote_sha" ] && [ "$local_sha" = "$remote_sha" ]; then
+        git branch -D "$name"
+        printf "Deleted local branch '%s' (fully represented on remote)\n" "$name"
+      else
+        printf "Kept local branch '%s' (differs from remote)\n" "$name"
+        printf "\nTo delete the local branch:\n"
+        printf "  git branch -D %s\n" "$name"
+        printf "\nTo also delete the remote branch:\n"
+        printf "  git push origin --delete %s\n" "$name"
+      fi
     else
-      printf "Warning: Remote branch '%s' does not exist, skipping\n" "$name"
+      printf "Kept local branch '%s' (no remote branch exists)\n" "$name"
+      printf "\nTo delete the local branch:\n"
+      printf "  git branch -D %s\n" "$name"
     fi
   fi
 }
 
-# Setup subcommand (stub)
+# Destroy subcommand — remove worktree + delete local and remote branches
+cmd_destroy() {
+  local name=""
+  local force=0
+
+  # Parse arguments
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --force)
+        force=1
+        shift
+        ;;
+      -*)
+        printf "Error: Unknown option: %s\n" "$1" >&2
+        exit 1
+        ;;
+      *)
+        if [ -z "$name" ]; then
+          name="$1"
+        else
+          printf "Error: Too many arguments\n" >&2
+          exit 1
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  # Interactive selection if no branch provided (exclude default branch)
+  if [ -z "$name" ]; then
+    name=$(select_worktree_interactive 1)
+  fi
+
+  # Check default branch protection
+  if is_default_branch "$name"; then
+    printf "Error: Cannot destroy the default branch '%s'\n" "$name" >&2
+    exit 1
+  fi
+
+  # Validate worktree directory
+  validate_worktree_dir "$name"
+
+  local worktrees_dir=$(get_worktrees_dir)
+  local worktree_path="$worktrees_dir/$name"
+
+  # Remove the worktree
+  if [ $force -eq 1 ]; then
+    git worktree remove --force "$worktree_path"
+  else
+    git worktree remove "$worktree_path"
+  fi
+
+  printf "Removed worktree: %s\n" "$worktree_path"
+
+  # Delete local branch
+  if branch_exists_local "$name"; then
+    git branch -D "$name"
+    printf "Deleted local branch: %s\n" "$name"
+  fi
+
+  # Delete remote branch
+  if branch_exists_remote "$name"; then
+    git push origin --delete "$name"
+    printf "Deleted remote branch: %s\n" "$name"
+  fi
+}
+
+# Setup subcommand
 cmd_setup() {
   local init_mode=0
   local init_path=""
-  local branch_name=""
 
   # Parse arguments
   while [ $# -gt 0 ]; do
@@ -589,18 +852,13 @@ cmd_setup() {
         ;;
       -*)
         printf "Error: Unknown option: %s\n" "$1" >&2
-        printf "Usage: git ht setup [--init [path]] [branch-name]\n" >&2
+        printf "Usage: git ht setup [--init [path]]\n" >&2
         exit 1
         ;;
       *)
-        if [ -z "$branch_name" ]; then
-          branch_name="$1"
-        else
-          printf "Error: Too many arguments\n" >&2
-          printf "Usage: git ht setup [--init [path]] [branch-name]\n" >&2
-          exit 1
-        fi
-        shift
+        printf "Error: Unexpected argument: %s\n" "$1" >&2
+        printf "Usage: git ht setup [--init [path]]\n" >&2
+        exit 1
         ;;
     esac
   done
@@ -669,7 +927,7 @@ cmd_setup() {
 # https://github.com/happycollision/dotfiles/blob/master/bin/git-ht
 #
 # This script is automatically run by 'git ht setup' (which itself is run at the
-# end of 'git ht create ...') to configure new worktrees. It will receive two
+# end of 'git ht checkout ...') to configure new worktrees. It will receive two
 # arguments when Happy Trees runs it:
 #
 # Arguments:
@@ -754,15 +1012,13 @@ EOF
 
     printf "\nNext steps:\n"
     printf "1. Edit %s to add your setup commands\n" "$setup_script"
-    printf "2. Run 'git ht setup' from inside a worktree, or\n"
-    printf "3. Run 'git ht setup <branch-name>' from anywhere\n"
+    printf "2. Run 'git ht setup' from inside a worktree\n"
 
     exit 0
   fi
 
   # Run mode: Execute setup script for a worktree
   local repo_root=$(get_repo_root)
-  local worktree_root=""
 
   # Read setup location from config first (before checking worktree status)
   local setup_location=$(get_config "happy-trees.setupLocation" "")
@@ -772,26 +1028,13 @@ EOF
     exit 1
   fi
 
-  # Determine target worktree
-  if [ -n "$branch_name" ]; then
-    # Branch name provided - find its worktree
-    # Note: We use || true to prevent the script from exiting if the function returns non-zero
-    worktree_root=$(get_worktree_path_for_branch "$branch_name" || true)
-    if [ -z "$worktree_root" ]; then
-      printf "Error: Worktree for branch '%s' not found\n" "$branch_name" >&2
-      printf "Use 'git worktree list' to see available worktrees\n" >&2
-      exit 1
-    fi
-  else
-    # No branch name - must be in a linked worktree
-    if ! is_linked_worktree; then
-      printf "Error: Not in a linked worktree\n" >&2
-      printf "Either run this command from inside a worktree, or provide a branch name:\n" >&2
-      printf "  git ht setup <branch-name>\n" >&2
-      exit 1
-    fi
-    worktree_root=$(git rev-parse --show-toplevel)
+  # Must be in a linked worktree
+  if ! is_linked_worktree; then
+    printf "Error: Not in a linked worktree\n" >&2
+    printf "Run this command from inside a worktree.\n" >&2
+    exit 1
   fi
+  local worktree_root=$(git rev-parse --show-toplevel)
 
   # Expand tokens in setup location
   local setup_script=$(expand_path_tokens "$setup_location" "$worktree_root")
@@ -842,11 +1085,14 @@ main() {
   shift
 
   case "$subcommand" in
-    create)
-      cmd_create "$@"
+    checkout|co)
+      cmd_checkout "$@"
       ;;
     remove)
       cmd_remove "$@"
+      ;;
+    destroy)
+      cmd_destroy "$@"
       ;;
     setup)
       cmd_setup "$@"

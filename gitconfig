@@ -40,4 +40,4 @@
 [include]
   path = ~/.gitconfig.local
 [happy-trees]
-	openWith = code
+	exec = code
