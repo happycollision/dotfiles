@@ -225,14 +225,24 @@ get_repo_root() {
   # Get the main repository root, not the worktree root
   # For worktrees, git-dir is like: /path/to/main/.git/worktrees/name
   # We need to strip /.git/worktrees/name to get /path/to/main
+  #
+  # Bare repos have no working tree, so --show-toplevel fails.
+  # For a bare repo, git-dir IS the repo root.
+  # For a worktree linked to a bare repo, git-dir is like:
+  #   /path/to/repo.git/worktrees/name (no /.git/ segment)
   local git_dir=$(git rev-parse --git-dir 2>/dev/null)
 
   if echo "$git_dir" | grep -q "/\.git/worktrees/"; then
-    # We're in a linked worktree
-    # Extract the main repo path by removing /.git/worktrees/name
+    # Linked worktree of a non-bare repo
     echo "$git_dir" | sed 's|/\.git/worktrees/.*||'
+  elif echo "$git_dir" | grep -q "/worktrees/"; then
+    # Linked worktree of a bare repo — strip /worktrees/name
+    echo "$git_dir" | sed 's|/worktrees/.*||'
+  elif [ "$(git rev-parse --is-bare-repository 2>/dev/null)" = "true" ]; then
+    # Inside the bare repo itself
+    cd "$git_dir" && pwd
   else
-    # We're in the main repo
+    # Normal non-bare repo
     git rev-parse --show-toplevel
   fi
 }
@@ -312,9 +322,10 @@ expand_path_tokens() {
 # Check if current directory is a linked worktree (not main repo)
 is_linked_worktree() {
   local git_dir=$(git rev-parse --git-dir 2>/dev/null)
-  # Linked worktrees have .git directories like /path/to/main/.git/worktrees/name
-  # Main repo has .git directory at repo root
-  [ -n "$git_dir" ] && echo "$git_dir" | grep -q "/\.git/worktrees/"
+  # Linked worktrees have git-dir like:
+  #   Non-bare parent: /path/to/main/.git/worktrees/name
+  #   Bare parent:     /path/to/repo.git/worktrees/name
+  [ -n "$git_dir" ] && echo "$git_dir" | grep -q "/worktrees/"
 }
 
 # Get worktree path for a given branch name
@@ -746,7 +757,14 @@ cmd_remove() {
   if branch_exists_local "$name"; then
     if branch_exists_remote "$name"; then
       local local_sha=$(git rev-parse "refs/heads/$name")
-      local remote_sha=$(git rev-parse "refs/remotes/origin/$name" 2>/dev/null || true)
+      # Try local tracking ref first, fall back to querying the remote
+      # (bare repos may not have refs/remotes/origin/* refs)
+      local remote_sha=""
+      if git show-ref --verify --quiet "refs/remotes/origin/$name" 2>/dev/null; then
+        remote_sha=$(git rev-parse "refs/remotes/origin/$name")
+      else
+        remote_sha=$(git ls-remote --heads origin "$name" 2>/dev/null | awk '{print $1}')
+      fi
 
       if [ -n "$remote_sha" ] && [ "$local_sha" = "$remote_sha" ]; then
         git branch -D "$name"
