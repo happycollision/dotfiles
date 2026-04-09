@@ -35,10 +35,20 @@ Why use git-ht?
 
 Commands:
   help               Show this help message
+  list, ls           List all worktrees and flag naming issues
   checkout, co       Switch to or create a worktree
   remove             Remove a worktree and conditionally delete the local branch
   destroy            Remove a worktree and delete both local and remote branches
   setup              Run setup script for a worktree
+
+git ht list:
+  List all linked worktrees and flag any that are incompatible with git-ht.
+
+  Worktrees whose directory path does not match the expected naming convention
+  (<worktrees-dir>/<branch>) are flagged — this typically means 'git checkout'
+  was run inside the worktree to switch branches. Detached HEAD worktrees are
+  also flagged since they have no branch association.
+
 
 git ht checkout [branch [base]] [options]:
   Create a worktree, or run exec for an existing one.
@@ -1084,6 +1094,50 @@ EOF
   fi
 }
 
+# List subcommand — show all linked worktrees and flag naming issues
+cmd_list() {
+  local worktrees_dir=$(get_worktrees_dir)
+  local repo_root=$(get_repo_root)
+  local current_path=""
+  local found=0
+
+  while IFS= read -r line; do
+    if echo "$line" | grep -q "^worktree "; then
+      current_path=$(echo "$line" | sed 's/^worktree //')
+    elif echo "$line" | grep -q "^branch "; then
+      # Skip the main repo worktree
+      if [ "$current_path" = "$repo_root" ]; then
+        current_path=""
+        continue
+      fi
+      found=1
+      local current_branch=$(echo "$line" | sed 's|^branch refs/heads/||')
+      local expected_path="$worktrees_dir/$current_branch"
+      if [ "$current_path" = "$expected_path" ]; then
+        printf "%s\t%s\n" "$current_branch" "$current_path"
+      else
+        printf "%s\t%s\t! path mismatch (likely wrong branch is checked out)\n" "$current_branch" "$current_path"
+      fi
+      current_path=""
+    elif echo "$line" | grep -q "^detached"; then
+      # Skip the main repo worktree
+      if [ "$current_path" = "$repo_root" ]; then
+        current_path=""
+        continue
+      fi
+      found=1
+      printf "(detached)\t%s\t! no branch (detached HEAD)\n" "$current_path"
+      current_path=""
+    fi
+  done <<LTEOF
+$(git worktree list --porcelain)
+LTEOF
+
+  if [ $found -eq 0 ]; then
+    printf "No linked worktrees found\n"
+  fi
+}
+
 # Main dispatcher
 main() {
   # Handle help flags first (before checking for subcommands)
@@ -1103,6 +1157,9 @@ main() {
   shift
 
   case "$subcommand" in
+    list|ls)
+      cmd_list "$@"
+      ;;
     checkout|co)
       cmd_checkout "$@"
       ;;
