@@ -14,15 +14,19 @@
   excludesfile = ~/.gitignore
   autocrlf = input
 	editor = code --wait
+	sshCommand = ssh -i ~/.ssh/id_ed25519
 [merge]
   ff = false
+	tool = Kaleidoscope
 [commit]
+	gpgSign = false
 [fetch]
   prune = true
 [rebase]
   autosquash = true
 [diff]
   colorMoved = zebra
+	tool = Kaleidoscope
 [filter "lfs"]
 	clean = git-lfs clean -- %f
 	smudge = git-lfs smudge -- %f
@@ -30,14 +34,24 @@
 	required = true
 [user]
 	name = Don Denton
-	email = don@happycollision.com
+	email = don.denton@trillianthealth.com
+	signingKey = 
 [mergetool]
 	keepBackup = true
+	prompt = false
 [credential]
 	helper = osxkeychain
 [url "git@github.com:"]
 	insteadOf = https://github.com/
 [include]
   path = ~/.gitconfig.local
+[difftool "Kaleidoscope"]
+	cmd = ksdiff --partial-changeset --relative-path \"$MERGED\" -- \"$LOCAL\" \"$REMOTE\"
+[mergetool "Kaleidoscope"]
+	cmd = ksdiff --merge --output \"$MERGED\" --base \"$BASE\" -- \"$LOCAL\" --snapshot \"$REMOTE\" --snapshot
+	trustExitCode = true
+[difftool]
+	prompt = false
+	trustExitCode = true
 [happy-trees]
 	exec = code
