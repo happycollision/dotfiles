@@ -655,6 +655,37 @@ FAILSETUPSCRIPT
   assert_output_contains "git_ht destroy master" "Cannot destroy the default branch" "Errors when trying to destroy default branch"
   
   # ============================================================================
+  # Test Group: Commands from inside a worktree
+  # ============================================================================
+  printf "\n${YELLOW}Test Group: Commands from Inside a Worktree${NC}\n"
+
+  # Create a "home base" worktree to run commands from
+  assert_success "git_ht co wt-home" "Creates home worktree"
+  cd "$SANDBOX/test-repo.worktrees/wt-home"
+
+  # Checkout another worktree while inside wt-home
+  assert_success "git_ht co wt-sibling" "Checkout creates sibling worktree from inside a worktree"
+  assert_file_exists "$SANDBOX/test-repo.worktrees/wt-sibling" "Sibling worktree directory exists"
+  assert_success "git branch --list wt-sibling | grep -q wt-sibling" "Sibling branch was created"
+
+  # Remove sibling worktree from inside wt-home
+  assert_success "git_ht remove wt-sibling" "Remove works from inside a worktree"
+  assert_file_not_exists "$SANDBOX/test-repo.worktrees/wt-sibling" "Sibling worktree removed"
+
+  # Destroy from inside wt-home
+  assert_success "git_ht co wt-to-destroy" "Creates worktree to destroy"
+  git push -q origin wt-to-destroy
+  assert_success "git_ht destroy wt-to-destroy" "Destroy works from inside a worktree"
+  assert_file_not_exists "$SANDBOX/test-repo.worktrees/wt-to-destroy" "Destroyed worktree removed"
+  assert_failure "git branch --list wt-to-destroy | grep -q wt-to-destroy" "Destroyed branch deleted"
+
+  # Return to main repo and cleanup
+  cd "$TEST_REPO_DIR"
+  git worktree remove "$SANDBOX/test-repo.worktrees/wt-home"
+  git branch -D wt-home
+  git branch -D wt-sibling 2>/dev/null || true
+
+  # ============================================================================
   # Test Group 16: Setup - init
   # ============================================================================
   printf "\n${YELLOW}Test Group: Setup - Init Mode${NC}\n"
