@@ -41,11 +41,27 @@ The test suite covers:
    - Default branch protection
    - `--force` flag for dirty worktrees
 
-5. **Setup**
+5. **Cross-worktree Commands**
+   - Checkout, remove, and destroy from inside a worktree (not just the main repo)
+
+6. **Setup**
    - `--init` mode (default path, relative path, absolute path, non-.sh extension, nested directories, safety checks)
    - Run mode from inside a worktree
    - Token expansion (`<repo_root>`, `<repo_name>`, `<worktree_root>`)
    - Error handling (not configured, not in worktree, script not found, not executable, failing script)
+
+### Repository Configurations
+
+All tests run in four configurations to ensure git-ht works across different setups:
+
+| Mode | Description |
+|------|-------------|
+| `normal` | Non-bare repo with a remote |
+| `bare` | Bare local clone with a remote (worktree-only workflow) |
+| `normal-noremote` | Non-bare repo with no remote |
+| `bare-noremote` | Bare repo with no remote |
+
+Remote-dependent tests (SHA matching in remove, remote branch deletion in destroy) are automatically skipped when no remote is configured.
 
 ### Test Output
 
@@ -57,8 +73,8 @@ The test suite provides colored output:
 Example output:
 ```
 === Test Summary ===
-Tests run:    137
-Tests passed: 137
+Tests run:    570
+Tests passed: 570
 Tests failed: 0
 
 All tests passed!

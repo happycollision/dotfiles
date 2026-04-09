@@ -93,78 +93,146 @@ assert_file_not_exists() {
 }
 
 # Setup test repository
-# Usage: setup_test_repo [bare]
-#   bare - create local repo as a bare clone (worktree-only workflow)
+# Usage: setup_test_repo <mode>
+#   normal         - non-bare repo with remote
+#   bare           - bare local clone with remote (worktree-only workflow)
+#   normal-noremote - non-bare repo with no remote
+#   bare-noremote  - bare repo with no remote
 setup_test_repo() {
   local mode="${1:-normal}"
+  HAS_REMOTE=1
   printf "${YELLOW}Setting up test repository (mode: %s)...${NC}\n" "$mode"
 
   # Remove any existing sandbox
   rm -rf "$SANDBOX"
 
-  # Create bare origin repo
-  mkdir -p "$SANDBOX/origin.git"
-  git init -q --bare "$SANDBOX/origin.git"
+  case "$mode" in
+    normal)
+      # Create bare origin repo
+      mkdir -p "$SANDBOX/origin.git"
+      git init -q --bare "$SANDBOX/origin.git"
 
-  if [ "$mode" = "bare" ]; then
-    # Seed the origin with commits so the bare clone has content
-    local seed_dir="$SANDBOX/seed-repo"
-    mkdir -p "$seed_dir"
-    cd "$seed_dir"
-    git init -q
-    git config user.name "Test User"
-    git config user.email "test@example.com"
-    echo "# Test Repository" > README.md
-    git add README.md
-    git commit -q -m "Initial commit"
-    echo "Content 1" > file1.txt
-    git add file1.txt
-    git commit -q -m "Add file1"
-    echo "Content 2" > file2.txt
-    git add file2.txt
-    git commit -q -m "Add file2"
-    git branch -M master
-    git remote add origin "$SANDBOX/origin.git"
-    git push -q -u origin master
-    cd "$SANDBOX"
-    rm -rf "$seed_dir"
+      # Create test repo directory
+      mkdir -p "$TEST_REPO_DIR"
+      cd "$TEST_REPO_DIR"
 
-    # Bare clone from origin
-    git clone -q --bare "$SANDBOX/origin.git" "$TEST_REPO_DIR"
-    cd "$TEST_REPO_DIR"
-    git config user.name "Test User"
-    git config user.email "test@example.com"
-  else
-    # Create test repo directory
-    mkdir -p "$TEST_REPO_DIR"
-    cd "$TEST_REPO_DIR"
+      # Initialize git repo
+      git init -q
+      git config user.name "Test User"
+      git config user.email "test@example.com"
 
-    # Initialize git repo
-    git init -q
-    git config user.name "Test User"
-    git config user.email "test@example.com"
+      # Create initial commit
+      echo "# Test Repository" > README.md
+      git add README.md
+      git commit -q -m "Initial commit"
 
-    # Create initial commit
-    echo "# Test Repository" > README.md
-    git add README.md
-    git commit -q -m "Initial commit"
+      # Create a few more commits for testing HEAD~N
+      echo "Content 1" > file1.txt
+      git add file1.txt
+      git commit -q -m "Add file1"
 
-    # Create a few more commits for testing HEAD~N
-    echo "Content 1" > file1.txt
-    git add file1.txt
-    git commit -q -m "Add file1"
+      echo "Content 2" > file2.txt
+      git add file2.txt
+      git commit -q -m "Add file2"
 
-    echo "Content 2" > file2.txt
-    git add file2.txt
-    git commit -q -m "Add file2"
+      # Set up default branch as master
+      git branch -M master
 
-    # Set up default branch as master
-    git branch -M master
+      # Add the bare repo as origin and push
+      git remote add origin "$SANDBOX/origin.git"
+      git push -q -u origin master
+      ;;
 
-    # Add the bare repo as origin and push
-    git remote add origin "$SANDBOX/origin.git"
-    git push -q -u origin master
-  fi
+    bare)
+      # Create bare origin repo and seed it
+      mkdir -p "$SANDBOX/origin.git"
+      git init -q --bare "$SANDBOX/origin.git"
+
+      local seed_dir="$SANDBOX/seed-repo"
+      mkdir -p "$seed_dir"
+      cd "$seed_dir"
+      git init -q
+      git config user.name "Test User"
+      git config user.email "test@example.com"
+      echo "# Test Repository" > README.md
+      git add README.md
+      git commit -q -m "Initial commit"
+      echo "Content 1" > file1.txt
+      git add file1.txt
+      git commit -q -m "Add file1"
+      echo "Content 2" > file2.txt
+      git add file2.txt
+      git commit -q -m "Add file2"
+      git branch -M master
+      git remote add origin "$SANDBOX/origin.git"
+      git push -q -u origin master
+      cd "$SANDBOX"
+      rm -rf "$seed_dir"
+
+      # Bare clone from origin
+      git clone -q --bare "$SANDBOX/origin.git" "$TEST_REPO_DIR"
+      cd "$TEST_REPO_DIR"
+      git config user.name "Test User"
+      git config user.email "test@example.com"
+      ;;
+
+    normal-noremote)
+      HAS_REMOTE=0
+
+      mkdir -p "$TEST_REPO_DIR"
+      cd "$TEST_REPO_DIR"
+
+      git init -q
+      git config user.name "Test User"
+      git config user.email "test@example.com"
+
+      echo "# Test Repository" > README.md
+      git add README.md
+      git commit -q -m "Initial commit"
+
+      echo "Content 1" > file1.txt
+      git add file1.txt
+      git commit -q -m "Add file1"
+
+      echo "Content 2" > file2.txt
+      git add file2.txt
+      git commit -q -m "Add file2"
+
+      git branch -M master
+      ;;
+
+    bare-noremote)
+      HAS_REMOTE=0
+
+      # Need a seed repo to create the bare repo from
+      local seed_dir="$SANDBOX/seed-repo"
+      mkdir -p "$seed_dir"
+      cd "$seed_dir"
+      git init -q
+      git config user.name "Test User"
+      git config user.email "test@example.com"
+      echo "# Test Repository" > README.md
+      git add README.md
+      git commit -q -m "Initial commit"
+      echo "Content 1" > file1.txt
+      git add file1.txt
+      git commit -q -m "Add file1"
+      echo "Content 2" > file2.txt
+      git add file2.txt
+      git commit -q -m "Add file2"
+      git branch -M master
+      cd "$SANDBOX"
+
+      # Create bare repo by cloning seed (gives us proper refs)
+      git clone -q --bare "$seed_dir" "$TEST_REPO_DIR"
+      rm -rf "$seed_dir"
+      cd "$TEST_REPO_DIR"
+      git config user.name "Test User"
+      git config user.email "test@example.com"
+      # Remove the origin that clone created
+      git remote remove origin
+      ;;
+  esac
 
   # Set worktreesDir explicitly to avoid path resolution issues with ../
   git config happy-trees.worktreesDir "$SANDBOX/test-repo.worktrees"
@@ -562,35 +630,39 @@ FAILSETUPSCRIPT
   # Test Group 12: Remove - auto branch cleanup (SHA matching)
   # ============================================================================
   printf "\n${YELLOW}Test Group: Remove - Auto Branch Cleanup${NC}\n"
-  
-  # Scenario 1: Local and remote SHA match -> branch auto-deleted
-  assert_success "git_ht co cleanup-match" "Creates worktree for SHA-match test"
-  # Push the branch to origin so local and remote match
-  git push -q origin cleanup-match
-  # Fetch so we have the remote tracking ref
-  git fetch -q origin
-  assert_success "git_ht remove cleanup-match" "Removes worktree (SHA match scenario)"
-  assert_file_not_exists "$SANDBOX/test-repo.worktrees/cleanup-match" "Worktree directory removed"
-  # Local branch should be auto-deleted since SHAs match
-  assert_failure "git branch --list cleanup-match | grep -q cleanup-match" "Local branch auto-deleted when SHA matches remote"
-  # Cleanup remote branch
-  git push -q origin --delete cleanup-match || true
-  
-  # Scenario 2: Local and remote SHA don't match -> branch preserved
-  assert_success "git_ht co cleanup-nomatch" "Creates worktree for SHA-nomatch test"
-  git push -q origin cleanup-nomatch
-  git fetch -q origin
-  # Make a local commit so SHAs diverge
-  git -C "$SANDBOX/test-repo.worktrees/cleanup-nomatch" commit -q --allow-empty -m "local diverge"
-  assert_success "git_ht remove cleanup-nomatch" "Removes worktree (SHA mismatch scenario)"
-  assert_file_not_exists "$SANDBOX/test-repo.worktrees/cleanup-nomatch" "Worktree directory removed"
-  # Local branch should still exist since SHAs differ
-  assert_success "git branch --list cleanup-nomatch | grep -q cleanup-nomatch" "Local branch preserved when SHA differs from remote"
-  # Cleanup
-  git branch -D cleanup-nomatch
-  git push -q origin --delete cleanup-nomatch || true
-  
-  # Scenario 3: No remote branch -> branch preserved
+
+  if [ $HAS_REMOTE -eq 1 ]; then
+    # Scenario 1: Local and remote SHA match -> branch auto-deleted
+    assert_success "git_ht co cleanup-match" "Creates worktree for SHA-match test"
+    # Push the branch to origin so local and remote match
+    git push -q origin cleanup-match
+    # Fetch so we have the remote tracking ref
+    git fetch -q origin
+    assert_success "git_ht remove cleanup-match" "Removes worktree (SHA match scenario)"
+    assert_file_not_exists "$SANDBOX/test-repo.worktrees/cleanup-match" "Worktree directory removed"
+    # Local branch should be auto-deleted since SHAs match
+    assert_failure "git branch --list cleanup-match | grep -q cleanup-match" "Local branch auto-deleted when SHA matches remote"
+    # Cleanup remote branch
+    git push -q origin --delete cleanup-match || true
+
+    # Scenario 2: Local and remote SHA don't match -> branch preserved
+    assert_success "git_ht co cleanup-nomatch" "Creates worktree for SHA-nomatch test"
+    git push -q origin cleanup-nomatch
+    git fetch -q origin
+    # Make a local commit so SHAs diverge
+    git -C "$SANDBOX/test-repo.worktrees/cleanup-nomatch" commit -q --allow-empty -m "local diverge"
+    assert_success "git_ht remove cleanup-nomatch" "Removes worktree (SHA mismatch scenario)"
+    assert_file_not_exists "$SANDBOX/test-repo.worktrees/cleanup-nomatch" "Worktree directory removed"
+    # Local branch should still exist since SHAs differ
+    assert_success "git branch --list cleanup-nomatch | grep -q cleanup-nomatch" "Local branch preserved when SHA differs from remote"
+    # Cleanup
+    git branch -D cleanup-nomatch
+    git push -q origin --delete cleanup-nomatch || true
+  else
+    printf "  (skipped — no remote configured)\n"
+  fi
+
+  # Scenario 3: No remote branch -> branch preserved (works with or without remote)
   assert_success "git_ht co cleanup-noremote" "Creates worktree for no-remote test"
   # Don't push to origin
   assert_success "git_ht remove cleanup-noremote" "Removes worktree (no remote scenario)"
@@ -622,18 +694,26 @@ FAILSETUPSCRIPT
   # Test Group 14: Destroy - basic
   # ============================================================================
   printf "\n${YELLOW}Test Group: Destroy - Basic${NC}\n"
-  
-  assert_success "git_ht co destroy-test-1" "Creates worktree for destroy test"
-  # Push to remote so destroy can delete both
-  git push -q origin destroy-test-1
-  git fetch -q origin
-  
-  assert_success "git_ht destroy destroy-test-1" "Destroys worktree + branches"
-  assert_file_not_exists "$SANDBOX/test-repo.worktrees/destroy-test-1" "Worktree directory removed by destroy"
-  assert_failure "git branch --list destroy-test-1 | grep -q destroy-test-1" "Local branch deleted by destroy"
-  # Verify remote branch is gone
-  assert_failure "git ls-remote --heads origin destroy-test-1 | grep -q destroy-test-1" "Remote branch deleted by destroy"
-  
+
+  if [ $HAS_REMOTE -eq 1 ]; then
+    assert_success "git_ht co destroy-test-1" "Creates worktree for destroy test"
+    # Push to remote so destroy can delete both
+    git push -q origin destroy-test-1
+    git fetch -q origin
+
+    assert_success "git_ht destroy destroy-test-1" "Destroys worktree + branches"
+    assert_file_not_exists "$SANDBOX/test-repo.worktrees/destroy-test-1" "Worktree directory removed by destroy"
+    assert_failure "git branch --list destroy-test-1 | grep -q destroy-test-1" "Local branch deleted by destroy"
+    # Verify remote branch is gone
+    assert_failure "git ls-remote --heads origin destroy-test-1 | grep -q destroy-test-1" "Remote branch deleted by destroy"
+  else
+    # Without a remote, destroy still removes worktree + local branch
+    assert_success "git_ht co destroy-test-1" "Creates worktree for destroy test"
+    assert_success "git_ht destroy destroy-test-1" "Destroys worktree + local branch (no remote)"
+    assert_file_not_exists "$SANDBOX/test-repo.worktrees/destroy-test-1" "Worktree directory removed by destroy"
+    assert_failure "git branch --list destroy-test-1 | grep -q destroy-test-1" "Local branch deleted by destroy"
+  fi
+
   # Test destroy with --force on dirty worktree
   assert_success "git_ht co destroy-test-2" "Creates worktree for force destroy test"
   echo "dirty" > "$SANDBOX/test-repo.worktrees/destroy-test-2/dirty.txt"
@@ -674,7 +754,9 @@ FAILSETUPSCRIPT
 
   # Destroy from inside wt-home
   assert_success "git_ht co wt-to-destroy" "Creates worktree to destroy"
-  git push -q origin wt-to-destroy
+  if [ $HAS_REMOTE -eq 1 ]; then
+    git push -q origin wt-to-destroy
+  fi
   assert_success "git_ht destroy wt-to-destroy" "Destroy works from inside a worktree"
   assert_file_not_exists "$SANDBOX/test-repo.worktrees/wt-to-destroy" "Destroyed worktree removed"
   assert_failure "git branch --list wt-to-destroy | grep -q wt-to-destroy" "Destroyed branch deleted"
@@ -1014,15 +1096,27 @@ FAILSCRIPT
 # Run both passes
 # ============================================================================
 
-# Pass 1: Normal (non-bare) local repo
+# Pass 1: Normal (non-bare) local repo with remote
 setup_test_repo normal
 printf "\n${YELLOW}=== Testing git-ht (normal repo) ===${NC}\n\n"
 run_all_tests
 cleanup
 
-# Pass 2: Bare local repo
+# Pass 2: Bare local repo with remote
 setup_test_repo bare
 printf "\n${YELLOW}=== Testing git-ht (bare repo) ===${NC}\n\n"
+run_all_tests
+cleanup
+
+# Pass 3: Normal (non-bare) local repo without remote
+setup_test_repo normal-noremote
+printf "\n${YELLOW}=== Testing git-ht (normal repo, no remote) ===${NC}\n\n"
+run_all_tests
+cleanup
+
+# Pass 4: Bare local repo without remote
+setup_test_repo bare-noremote
+printf "\n${YELLOW}=== Testing git-ht (bare repo, no remote) ===${NC}\n\n"
 run_all_tests
 
 # ============================================================================
