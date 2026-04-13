@@ -74,8 +74,8 @@ git ht checkout [branch [base]] [options]:
   Options:
     -s, --skip-setup       Skip automatic setup script execution. Inferred when
                            the worktree already exists.
-    -e, --exec <command>   Run command with worktree path after checkout is
-                           complete (overrides git config default)
+    -e, --exec <command>   Run command from inside the worktree directory after
+                           checkout is complete (overrides git config default)
     -E, --no-exec          Skip default exec command (if configured)
 
 
@@ -160,10 +160,10 @@ Configuration:
       Example: git config happy-trees.defaultBranch origin/develop
 
     git config happy-trees.exec <command>
-      Set the default command to run after checkout completes.
-      The worktree path is passed as the first argument.
+      Set the default command to run from inside the worktree directory
+      after checkout completes. Supports multi-word commands.
       Use -E / --no-exec to skip when needed.
-      Example: git config happy-trees.exec code
+      Example: git config happy-trees.exec "code ."
 
     git config happy-trees.setupLocation <path>
       Set the setup script location (required for setup command).
@@ -205,7 +205,7 @@ Examples:
   git ht co new-branch origin/dev   # Same, but from the given ref
   git ht co existing-branch         # Create worktree from existing branch
   git ht co existing-branch -s      # Create worktree, skip setup
-  git ht co my-branch -e "code ."   # Execute a command inside worktree
+  git ht co my-branch -e "code ."   # Run command from inside worktree
   git ht co my-branch -E            # Skip default exec (if one exists)
 
   # Manual setup
@@ -461,11 +461,7 @@ run_exec() {
     return
   fi
 
-  if command -v "$exec_cmd" >/dev/null 2>&1; then
-    "$exec_cmd" "$worktree_path" || printf "Warning: '%s' command failed\n" "$exec_cmd" >&2
-  else
-    printf "Warning: Command '%s' not found\n" "$exec_cmd" >&2
-  fi
+  (cd "$worktree_path" && eval "$exec_cmd") || printf "Warning: exec command failed: %s\n" "$exec_cmd" >&2
 }
 
 # Interactive fzf selector for existing worktrees
@@ -497,7 +493,7 @@ select_worktree_interactive() {
         current_branch=""
         continue
       fi
-      worktree_list="${worktree_list}${current_branch}\t(worktree: ${current_path})\n"
+      worktree_list="${worktree_list}$(printf '%s\t%s\n' "$current_branch" "(worktree: ${current_path})")"
       current_path=""
       current_branch=""
     elif [ -z "$line" ]; then
@@ -514,7 +510,7 @@ WTEOF
   fi
 
   local selected
-  selected=$(printf "$worktree_list" | fzf --ansi --prompt="Select worktree: " --header="Worktrees") || exit 1
+  selected=$(printf '%s' "$worktree_list" | fzf --ansi --prompt="Select worktree: " --header="Worktrees") || exit 1
   echo "$selected" | awk '{print $1}'
 }
 
@@ -537,8 +533,9 @@ select_branch_interactive() {
     elif echo "$line" | grep -q "^branch "; then
       current_branch=$(echo "$line" | sed 's|^branch refs/heads/||')
       if [ "$current_path" != "$repo_root" ]; then
-        entries="${entries}${current_branch}\t(worktree)\n"
-        wt_branches="${wt_branches}${current_branch}\n"
+        entries="${entries}$(printf '%s\t%s\n' "$current_branch" "(worktree)")"
+        wt_branches="${wt_branches}${current_branch}
+"
       fi
       current_path=""
       current_branch=""
@@ -556,23 +553,23 @@ WTEOF
     local bare_name=$(echo "$name" | sed 's|^origin/||')
 
     # Skip if already a worktree
-    if printf "$wt_branches" | grep -qx "$bare_name"; then
+    if printf '%s' "$wt_branches" | grep -qx "$bare_name"; then
       continue
     fi
 
     # Determine label
     if echo "$ref" | grep -q "^refs/heads/"; then
-      entries="${entries}${bare_name}\t(local)\n"
+      entries="${entries}$(printf '%s\t%s\n' "$bare_name" "(local)")"
     elif echo "$ref" | grep -q "^refs/remotes/"; then
       # Skip origin/HEAD
       if echo "$name" | grep -q "/HEAD$"; then
         continue
       fi
       # Skip if we already listed this as a local branch
-      if printf "$wt_branches" | grep -qx "$bare_name" || echo "$entries" | grep -q "^${bare_name}	"; then
+      if printf '%s' "$wt_branches" | grep -qx "$bare_name" || printf '%s' "$entries" | grep -q "^${bare_name}	"; then
         continue
       fi
-      entries="${entries}${bare_name}\t(remote: ${name})\n"
+      entries="${entries}$(printf '%s\t%s\n' "$bare_name" "(remote: ${name})")"
     fi
   done <<BREOF
 $(git for-each-ref --sort=-committerdate --format='%(refname)' refs/heads/ refs/remotes/origin/)
@@ -584,7 +581,7 @@ BREOF
   fi
 
   local selected
-  selected=$(printf "$entries" | fzf --ansi --prompt="Select branch: " --header="Branches (worktrees listed first)") || exit 1
+  selected=$(printf '%s' "$entries" | fzf --ansi --prompt="Select branch: " --header="Branches (worktrees listed first)") || exit 1
   echo "$selected" | awk '{print $1}'
 }
 

@@ -438,11 +438,11 @@ run_all_tests() {
   # ============================================================================
   printf "\n${YELLOW}Test Group: Checkout - Exec Flag${NC}\n"
   
-  # Create a test script that writes to a marker file when called
+  # Create a test script that writes pwd to a marker file when called
   mkdir -p "$SANDBOX/test-commands"
   cat > "$SANDBOX/test-commands/test-cmd" <<'TESTCMD'
   #!/bin/sh
-  echo "$1" > "$TEST_MARKER_FILE"
+  pwd > "$TEST_MARKER_FILE"
 TESTCMD
   chmod +x "$SANDBOX/test-commands/test-cmd"
   
@@ -454,18 +454,18 @@ TESTCMD
   assert_success "git_ht co exec-test-1 -e test-cmd" "Creates worktree with -e test-cmd"
   assert_file_exists "$TEST_MARKER_FILE" "Exec command was executed (marker file exists)"
   
-  # Verify command received correct path
+  # Verify exec ran from the worktree directory
   if [ -f "$TEST_MARKER_FILE" ]; then
-    received_path=$(cd "$(cat "$TEST_MARKER_FILE")" && pwd)
+    received_path=$(cat "$TEST_MARKER_FILE" | tr -d '[:space:]')
     expected_path=$(cd "$SANDBOX/test-repo.worktrees/exec-test-1" && pwd)
     if [ "$received_path" = "$expected_path" ]; then
       TESTS_RUN=$((TESTS_RUN + 1))
       TESTS_PASSED=$((TESTS_PASSED + 1))
-      printf "${GREEN}✓${NC} Exec command received correct worktree path\n"
+      printf "${GREEN}✓${NC} Exec command ran from worktree directory\n"
     else
       TESTS_RUN=$((TESTS_RUN + 1))
       TESTS_FAILED=$((TESTS_FAILED + 1))
-      printf "${RED}✗${NC} Exec command received wrong path\n"
+      printf "${RED}✗${NC} Exec command ran from wrong directory\n"
       printf "  Expected: %s\n" "$expected_path"
       printf "  Received: %s\n" "$received_path"
     fi
@@ -489,7 +489,12 @@ TESTCMD
   rm -f "$TEST_MARKER_FILE"
   assert_success "git_ht co exec-test-1 --no-exec" "Re-checkout with --no-exec (long form)"
   assert_file_not_exists "$TEST_MARKER_FILE" "No exec command ran with --no-exec long form"
-  
+
+  # Test multi-word exec command (e.g. "test-cmd .")
+  rm -f "$TEST_MARKER_FILE"
+  assert_success "git_ht co exec-test-1 -e 'test-cmd .'" "Re-checkout with multi-word exec command"
+  assert_file_exists "$TEST_MARKER_FILE" "Multi-word exec command was executed"
+
   # Cleanup exec-test-1
   git worktree remove "$SANDBOX/test-repo.worktrees/exec-test-1"
   git branch -D exec-test-1
@@ -540,7 +545,7 @@ FAILCMD
   rm -f "$TEST_MARKER_FILE"
   cat > "$SANDBOX/test-commands/other-cmd" <<'OTHERCMD'
   #!/bin/sh
-  echo "other:$1" > "$TEST_MARKER_FILE"
+  echo "other:$(pwd)" > "$TEST_MARKER_FILE"
 OTHERCMD
   chmod +x "$SANDBOX/test-commands/other-cmd"
   
