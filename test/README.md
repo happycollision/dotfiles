@@ -19,56 +19,62 @@ From the dotfiles repository root:
 The test suite covers:
 
 1. **Help and Basic Commands**
-   - Help text display
-   - Default behavior
+   - Help text display, subcommand routing, error on unknown commands
 
-2. **Basic Worktree Creation**
-   - Creating worktrees in default location
-   - Branch creation
-   - Directory structure
+2. **Checkout (`co`)**
+   - New branch creation (from default, from specific base ref)
+   - Existing branch detection (auto-creates worktree)
+   - Existing worktree detection (runs exec only)
+   - Base argument error handling
+   - `--exec` / `--no-exec` flags and config default
+   - `--skip-setup` flag
+   - Automatic setup execution on create
 
-3. **Safety Checks**
-   - Refusing duplicate branch names
-   - Refusing currently checked out branches
-   - Worktree directory conflicts
+3. **Remove**
+   - Basic worktree removal
+   - Auto-deletion of local branch when remote SHA matches
+   - Preservation of local branch when SHAs differ or no remote exists
+   - `--force` flag for dirty worktrees
 
-4. **Existing Branch Flag (`-e`)**
-   - Using existing branches
-   - Error handling for non-existent branches
+4. **Destroy**
+   - Worktree + local + remote branch deletion
+   - Default branch protection
+   - `--force` flag for dirty worktrees
 
-5. **Worktree Removal**
-   - Basic removal
-   - Removal with `--delete-branch`
-   - Removal with custom directories
+5. **Cross-worktree Commands**
+   - Checkout, remove, and destroy from inside a worktree (not just the main repo)
 
-6. **Custom Starting Points**
-   - Creating from specific commits with `-i`
-   - Verification of correct HEAD position
+6. **Setup**
+   - `--init` mode (default path, relative path, absolute path, non-.sh extension, nested directories, safety checks)
+   - Run mode from inside a worktree
+   - Token expansion (`<repo_root>`, `<repo_name>`, `<worktree_root>`)
+   - Error handling (not configured, not in worktree, script not found, not executable, failing script)
 
-7. **Flag Validation**
-   - Mutually exclusive flags
-   - Required arguments
+### Repository Configurations
 
-8. **Custom Directories**
-   - Using `-d` with absolute paths
-   - Creation and removal in custom locations
+All tests run in four configurations to ensure git-ht works across different setups:
 
-9. **Error Handling**
-   - Non-existent worktrees
-   - Missing required arguments
+| Mode | Description |
+|------|-------------|
+| `normal` | Non-bare repo with a remote |
+| `bare` | Bare local clone with a remote (worktree-only workflow) |
+| `normal-noremote` | Non-bare repo with no remote |
+| `bare-noremote` | Bare repo with no remote |
+
+Remote-dependent tests (SHA matching in remove, remote branch deletion in destroy) are automatically skipped when no remote is configured.
 
 ### Test Output
 
 The test suite provides colored output:
-- ✓ Green: Passing tests
-- ✗ Red: Failing tests
+- Green: Passing tests
+- Red: Failing tests
 - Yellow: Section headers and summary
 
 Example output:
 ```
 === Test Summary ===
-Tests run:    28
-Tests passed: 28
+Tests run:    570
+Tests passed: 570
 Tests failed: 0
 
 All tests passed!
