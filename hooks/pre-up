@@ -2,27 +2,33 @@
 
 echo "Before running rcup... we are grabbing a few things."
 
-# Git Jaspr
+# Jaspr
 
-expected_git_jaspr_version="v26-beta"
+expected_jaspr_version="v2.0-beta-8"
 
-# function to install the latest version of git-jaspr
-install_git_jaspr() {
-  curl -L https://github.com/MichaelSims/git-jaspr/releases/download/$expected_git_jaspr_version/git-jaspr-mac -o ~/dotfiles/bin/git-jaspr
-  chmod +x ~/dotfiles/bin/git-jaspr
+# function to install the latest version of jaspr
+install_jaspr() {
+  curl -L https://github.com/MichaelSims/git-jaspr/releases/download/$expected_jaspr_version/jaspr-macos-arm64 -o ~/dotfiles/bin/jaspr
+  chmod +x ~/dotfiles/bin/jaspr
 }
 
-# check if git-jaspr is installed
-if [ -f ~/dotfiles/bin/git-jaspr ]; then
-  # check if the version is correct. Returned value is like "git jaspr version
-  # v25-beta", so we need to get the final part of the string with `cut`
-  installed_git_jaspr_version=$(~/dotfiles/bin/git-jaspr --version | cut -d ' ' -f 4)
+# check if jaspr is installed
+if [ -f ~/dotfiles/bin/jaspr ]; then
+  # check if the version is correct. Returned value is like "jaspr version
+  # v2.0-beta-1", so we need to get the final part of the string with `cut`
+  installed_jaspr_version=$(~/dotfiles/bin/jaspr --version | cut -d ' ' -f 3)
   
-  if [ "$installed_git_jaspr_version" != "$expected_git_jaspr_version" ]; then
-    echo "Updating git-jaspr from $installed_git_jaspr_version to $expected_git_jaspr_version"
-    install_git_jaspr
+  if [ "$installed_jaspr_version" != "$expected_jaspr_version" ]; then
+    echo "Updating jaspr from $installed_jaspr_version to $expected_jaspr_version"
+    install_jaspr
   fi
 else
-  echo "Installing git-jaspr $expected_git_jaspr_version"
-  install_git_jaspr
+  echo "Installing jaspr $expected_jaspr_version"
+  install_jaspr
+fi
+
+if [ -f ~/dotfiles/bin/git-jaspr ]; then
+  # Remove the old git-jaspr if it exists, since it's been renamed to jaspr
+  echo "Removing old git-jaspr binary"
+  rm ~/dotfiles/bin/git-jaspr
 fi
