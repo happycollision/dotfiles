@@ -474,41 +474,33 @@ run_exec() {
 # and collapse every entry onto a single line.
 build_worktree_entries() {
   local exclude_default="$1"
-  local worktree_list=""
-  local current_path=""
-  local current_branch=""
   local repo_root=$(get_repo_root)
 
-  while IFS= read -r line; do
-    if echo "$line" | grep -q "^worktree "; then
-      current_path=$(echo "$line" | sed 's/^worktree //')
-    elif echo "$line" | grep -q "^branch "; then
-      current_branch=$(echo "$line" | sed 's|^branch refs/heads/||')
-      # Skip the main repo worktree (it's not a linked worktree)
-      if [ "$current_path" = "$repo_root" ]; then
-        current_path=""
-        current_branch=""
-        continue
-      fi
-      # Skip default branch if requested
-      if [ "$exclude_default" = "1" ] && is_default_branch "$current_branch"; then
-        current_path=""
-        current_branch=""
-        continue
-      fi
-      worktree_list="${worktree_list}$(printf '%s\t%s' "$current_branch" "(worktree: ${current_path})")
-"
-      current_path=""
-      current_branch=""
-    elif [ -z "$line" ]; then
-      current_path=""
-      current_branch=""
-    fi
-  done <<WTEOF
-$(git worktree list --porcelain)
-WTEOF
+  # Resolve the default branch name once (avoids forking is_default_branch per
+  # worktree). Empty when exclusion is not requested.
+  local default_name=""
+  if [ "$exclude_default" = "1" ]; then
+    local default_ref=$(get_remote_default_branch)
+    default_name="${default_ref#origin/}"
+  fi
 
-  printf '%s' "$worktree_list"
+  git worktree list --porcelain | awk \
+    -v repo_root="$repo_root" \
+    -v default_name="$default_name" '
+    $1 == "worktree" { cur_path = substr($0, length("worktree ") + 1); next }
+    $1 == "branch" {
+      sub(/^branch refs\/heads\//, "")
+      branch = $0
+      # Skip the main repo worktree (it is not a linked worktree).
+      if (cur_path == repo_root) { cur_path = ""; next }
+      # Skip the default branch when exclusion is requested.
+      if (default_name != "" && branch == default_name) { cur_path = ""; next }
+      print branch "\t(worktree: " cur_path ")"
+      cur_path = ""
+      next
+    }
+    $0 == "" { cur_path = "" }
+  '
 }
 
 # Interactive fzf selector for existing worktrees
@@ -535,71 +527,66 @@ select_worktree_interactive() {
 # first, then non-worktree branches sorted by most recent commit.
 # Outputs: one "<branch>\t(<label>)" entry per line.
 #
-# Note on newline handling: command substitution $(...) strips trailing
-# newlines, so the per-entry newline MUST be a literal newline placed OUTSIDE
-# the substitution. Embedding \n inside the printf format would be discarded
-# and collapse every entry onto a single line.
+# Implementation note: rather than looping in shell (which forks several
+# processes per branch and dedups with O(N^2) grep, making this dominate
+# startup on repos with many branches), we hand git's porcelain output to a
+# single awk pass. awk does all labeling and dedup in associative arrays.
+#
+# Input framing: we concatenate two streams separated by a literal "@@REFS@@"
+# marker so one awk invocation can parse both —
+#   1. git worktree list --porcelain  (worktree <path> / branch refs/heads/...)
+#   2. @@REFS@@
+#   3. git for-each-ref ...            (one refname per line, recency-sorted)
 build_checkout_entries() {
-  local entries=""
   local repo_root=$(get_repo_root)
 
-  # Collect worktree branches
-  local wt_branches=""
-  local current_path=""
-  local current_branch=""
+  {
+    git worktree list --porcelain
+    printf '@@REFS@@\n'
+    git for-each-ref --sort=-committerdate --format='%(refname)' refs/heads/ refs/remotes/origin/
+  } | awk -v repo_root="$repo_root" '
+    # Phase 1: worktree porcelain (until the @@REFS@@ marker).
+    !refs_phase {
+      if ($0 == "@@REFS@@") { refs_phase = 1; next }
+      if ($1 == "worktree") { cur_path = substr($0, length("worktree ") + 1); next }
+      if ($1 == "branch") {
+        sub(/^branch refs\/heads\//, "")
+        # Skip the main repo worktree (it is not a linked worktree).
+        if (cur_path != repo_root) {
+          print $0 "\t(worktree)"
+          is_wt[$0] = 1
+        }
+        cur_path = ""
+        next
+      }
+      if ($0 == "") cur_path = ""
+      next
+    }
 
-  while IFS= read -r line; do
-    if echo "$line" | grep -q "^worktree "; then
-      current_path=$(echo "$line" | sed 's/^worktree //')
-    elif echo "$line" | grep -q "^branch "; then
-      current_branch=$(echo "$line" | sed 's|^branch refs/heads/||')
-      if [ "$current_path" != "$repo_root" ]; then
-        entries="${entries}$(printf '%s\t%s' "$current_branch" "(worktree)")
-"
-        wt_branches="${wt_branches}${current_branch}
-"
-      fi
-      current_path=""
-      current_branch=""
-    elif [ -z "$line" ]; then
-      current_path=""
-      current_branch=""
-    fi
-  done <<WTEOF
-$(git worktree list --porcelain)
-WTEOF
+    # Phase 2: refs, already sorted by most recent commit.
+    {
+      ref = $0
+      name = ref
+      sub(/^refs\/heads\//, "", name)
+      sub(/^refs\/remotes\//, "", name)
+      bare = name
+      sub(/^origin\//, "", bare)
 
-  # Collect non-worktree branches sorted by most recent commit
-  while IFS= read -r ref; do
-    local name=$(echo "$ref" | sed 's|^refs/heads/||; s|^refs/remotes/||')
-    local bare_name=$(echo "$name" | sed 's|^origin/||')
+      # Skip if a worktree already covers this branch.
+      if (bare in is_wt) next
 
-    # Skip if already a worktree
-    if printf '%s' "$wt_branches" | grep -qx "$bare_name"; then
-      continue
-    fi
-
-    # Determine label
-    if echo "$ref" | grep -q "^refs/heads/"; then
-      entries="${entries}$(printf '%s\t%s' "$bare_name" "(local)")
-"
-    elif echo "$ref" | grep -q "^refs/remotes/"; then
-      # Skip origin/HEAD
-      if echo "$name" | grep -q "/HEAD$"; then
-        continue
-      fi
-      # Skip if we already listed this as a local branch
-      if printf '%s' "$wt_branches" | grep -qx "$bare_name" || printf '%s' "$entries" | grep -q "^${bare_name}	"; then
-        continue
-      fi
-      entries="${entries}$(printf '%s\t%s' "$bare_name" "(remote: ${name})")
-"
-    fi
-  done <<BREOF
-$(git for-each-ref --sort=-committerdate --format='%(refname)' refs/heads/ refs/remotes/origin/)
-BREOF
-
-  printf '%s' "$entries"
+      if (ref ~ /^refs\/heads\//) {
+        if (bare in listed) next
+        print bare "\t(local)"
+        listed[bare] = 1
+      } else if (ref ~ /^refs\/remotes\//) {
+        if (name ~ /\/HEAD$/) next       # skip origin/HEAD
+        if (bare in listed) next          # already listed as local (or another remote)
+        print bare "\t(remote: " name ")"
+        listed[bare] = 1
+      }
+    }
+  '
 }
 
 # Interactive fzf selector for checkout — worktrees first, then branches by recency
