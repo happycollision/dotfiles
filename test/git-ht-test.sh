@@ -333,6 +333,61 @@ run_all_tests() {
   git_ht remove list-test-1 --force 2>/dev/null || true
 
   # ============================================================================
+  # Test Group: Interactive selector entry building (no fzf)
+  # ============================================================================
+  printf "\n${YELLOW}Test Group: Interactive Selector Entries${NC}\n"
+
+  # The interactive selectors (git ht co / remove / destroy without a branch
+  # arg) build a newline-separated list of entries to pipe into fzf. Each entry
+  # MUST be on its own line, otherwise fzf renders everything as a single line.
+  # These helpers are exercised directly so we don't need an interactive TTY.
+
+  # Create a couple of worktrees plus a non-worktree branch so each selector has
+  # multiple entries to render.
+  git_ht co iface-wt-1 >/dev/null 2>&1
+  git_ht co iface-wt-2 >/dev/null 2>&1
+  git branch iface-plain-branch >/dev/null 2>&1
+
+  # --- checkout selector ---
+  # The two worktrees must appear as two SEPARATE lines tagged "(worktree)".
+  # The original bug collapsed them (and every other entry) onto one line
+  # because the per-entry newline was stripped by command substitution. We
+  # assert on the worktree count specifically so the test fails even if only
+  # the worktree-entry path regresses.
+  co_entries=$(GIT_HT_DUMP=checkout-entries "$GIT_HT_PATH" co 2>/dev/null)
+  co_wt_lines=$(printf '%s\n' "$co_entries" | grep -c '(worktree)$' || true)
+  if [ "$co_wt_lines" -eq 2 ]; then
+    TESTS_RUN=$((TESTS_RUN + 1))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    printf "${GREEN}✓${NC} Checkout selector renders each worktree on its own line\n"
+  else
+    TESTS_RUN=$((TESTS_RUN + 1))
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    printf "${RED}✗${NC} Checkout selector: expected 2 worktree lines, got %s\n" "$co_wt_lines"
+    printf "  Entries: %s\n" "$co_entries"
+  fi
+
+  # --- worktree selector (remove/destroy) ---
+  # Both worktrees must appear on their own line.
+  wt_entries=$(GIT_HT_DUMP=worktree-entries "$GIT_HT_PATH" remove 2>/dev/null)
+  wt_lines=$(printf '%s\n' "$wt_entries" | grep -c '^iface-wt-' || true)
+  if [ "$wt_lines" -eq 2 ]; then
+    TESTS_RUN=$((TESTS_RUN + 1))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    printf "${GREEN}✓${NC} Worktree selector renders each worktree on its own line\n"
+  else
+    TESTS_RUN=$((TESTS_RUN + 1))
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    printf "${RED}✗${NC} Worktree selector: expected 2 worktree lines, got %s\n" "$wt_lines"
+    printf "  Entries: %s\n" "$wt_entries"
+  fi
+
+  # Cleanup
+  git_ht remove iface-wt-1 --force >/dev/null 2>&1 || true
+  git_ht remove iface-wt-2 --force >/dev/null 2>&1 || true
+  git branch -D iface-wt-1 iface-wt-2 iface-plain-branch 2>/dev/null || true
+
+  # ============================================================================
   # Test Group 2: Checkout - new branch
   # ============================================================================
   printf "\n${YELLOW}Test Group: Checkout - New Branch${NC}\n"

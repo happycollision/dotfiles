@@ -464,16 +464,20 @@ run_exec() {
   (cd "$worktree_path" && eval "$exec_cmd") || printf "Warning: exec command failed: %s\n" "$exec_cmd" >&2
 }
 
-# Interactive fzf selector for existing worktrees
+# Build the newline-separated entry list for the worktree selector.
 # Args: exclude_default (0 or 1)
-# Outputs: selected branch name
-select_worktree_interactive() {
+# Outputs: one "<branch>\t(worktree: <path>)" entry per line.
+#
+# Note on newline handling: command substitution $(...) strips trailing
+# newlines, so the per-entry newline MUST be a literal newline placed OUTSIDE
+# the substitution. Embedding \n inside the printf format would be discarded
+# and collapse every entry onto a single line.
+build_worktree_entries() {
   local exclude_default="$1"
-  require_fzf
-
   local worktree_list=""
   local current_path=""
   local current_branch=""
+  local repo_root=$(get_repo_root)
 
   while IFS= read -r line; do
     if echo "$line" | grep -q "^worktree "; then
@@ -481,7 +485,6 @@ select_worktree_interactive() {
     elif echo "$line" | grep -q "^branch "; then
       current_branch=$(echo "$line" | sed 's|^branch refs/heads/||')
       # Skip the main repo worktree (it's not a linked worktree)
-      local repo_root=$(get_repo_root)
       if [ "$current_path" = "$repo_root" ]; then
         current_path=""
         current_branch=""
@@ -493,7 +496,8 @@ select_worktree_interactive() {
         current_branch=""
         continue
       fi
-      worktree_list="${worktree_list}$(printf '%s\t%s\n' "$current_branch" "(worktree: ${current_path})")"
+      worktree_list="${worktree_list}$(printf '%s\t%s' "$current_branch" "(worktree: ${current_path})")
+"
       current_path=""
       current_branch=""
     elif [ -z "$line" ]; then
@@ -503,6 +507,19 @@ select_worktree_interactive() {
   done <<WTEOF
 $(git worktree list --porcelain)
 WTEOF
+
+  printf '%s' "$worktree_list"
+}
+
+# Interactive fzf selector for existing worktrees
+# Args: exclude_default (0 or 1)
+# Outputs: selected branch name
+select_worktree_interactive() {
+  local exclude_default="$1"
+
+  local worktree_list=$(build_worktree_entries "$exclude_default")
+
+  require_fzf
 
   if [ -z "$worktree_list" ]; then
     printf "Error: No worktrees found\n" >&2
@@ -514,11 +531,15 @@ WTEOF
   echo "$selected" | awk '{print $1}'
 }
 
-# Interactive fzf selector for checkout — worktrees first, then branches by recency
-# Outputs: selected branch name
-select_branch_interactive() {
-  require_fzf
-
+# Build the newline-separated entry list for the checkout selector — worktrees
+# first, then non-worktree branches sorted by most recent commit.
+# Outputs: one "<branch>\t(<label>)" entry per line.
+#
+# Note on newline handling: command substitution $(...) strips trailing
+# newlines, so the per-entry newline MUST be a literal newline placed OUTSIDE
+# the substitution. Embedding \n inside the printf format would be discarded
+# and collapse every entry onto a single line.
+build_checkout_entries() {
   local entries=""
   local repo_root=$(get_repo_root)
 
@@ -533,7 +554,8 @@ select_branch_interactive() {
     elif echo "$line" | grep -q "^branch "; then
       current_branch=$(echo "$line" | sed 's|^branch refs/heads/||')
       if [ "$current_path" != "$repo_root" ]; then
-        entries="${entries}$(printf '%s\t%s\n' "$current_branch" "(worktree)")"
+        entries="${entries}$(printf '%s\t%s' "$current_branch" "(worktree)")
+"
         wt_branches="${wt_branches}${current_branch}
 "
       fi
@@ -559,7 +581,8 @@ WTEOF
 
     # Determine label
     if echo "$ref" | grep -q "^refs/heads/"; then
-      entries="${entries}$(printf '%s\t%s\n' "$bare_name" "(local)")"
+      entries="${entries}$(printf '%s\t%s' "$bare_name" "(local)")
+"
     elif echo "$ref" | grep -q "^refs/remotes/"; then
       # Skip origin/HEAD
       if echo "$name" | grep -q "/HEAD$"; then
@@ -569,11 +592,22 @@ WTEOF
       if printf '%s' "$wt_branches" | grep -qx "$bare_name" || printf '%s' "$entries" | grep -q "^${bare_name}	"; then
         continue
       fi
-      entries="${entries}$(printf '%s\t%s\n' "$bare_name" "(remote: ${name})")"
+      entries="${entries}$(printf '%s\t%s' "$bare_name" "(remote: ${name})")
+"
     fi
   done <<BREOF
 $(git for-each-ref --sort=-committerdate --format='%(refname)' refs/heads/ refs/remotes/origin/)
 BREOF
+
+  printf '%s' "$entries"
+}
+
+# Interactive fzf selector for checkout — worktrees first, then branches by recency
+# Outputs: selected branch name
+select_branch_interactive() {
+  local entries=$(build_checkout_entries)
+
+  require_fzf
 
   if [ -z "$entries" ]; then
     printf "Error: No branches found\n" >&2
@@ -625,6 +659,12 @@ cmd_checkout() {
         ;;
     esac
   done
+
+  # Test hook: dump the selector entry list and exit, bypassing fzf.
+  if [ "${GIT_HT_DUMP:-}" = "checkout-entries" ]; then
+    build_checkout_entries
+    exit 0
+  fi
 
   # Interactive selection if no branch provided
   if [ -z "$branch" ]; then
@@ -739,6 +779,12 @@ cmd_remove() {
         ;;
     esac
   done
+
+  # Test hook: dump the selector entry list and exit, bypassing fzf.
+  if [ "${GIT_HT_DUMP:-}" = "worktree-entries" ]; then
+    build_worktree_entries 0
+    exit 0
+  fi
 
   # Interactive selection if no branch provided
   if [ -z "$name" ]; then
