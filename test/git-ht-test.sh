@@ -4,6 +4,27 @@
 
 set -e
 
+# --- Hermetic git environment --------------------------------------------
+# This suite creates bare repos and cd's into them (the "bare" test passes).
+# Some environments inject `safe.bareRepository=explicit` via git's
+# GIT_CONFIG_COUNT/GIT_CONFIG_KEY_n/GIT_CONFIG_VALUE_n env mechanism (or set it
+# in global/system config), which makes a plain `git` command refuse to operate
+# on a bare repo discovered from the CWD ("fatal: not in a git directory") and
+# breaks setup. Neutralize that injection and force bare-repo access on for our
+# own git invocations so the suite is not at the mercy of the caller's config.
+if [ -n "${GIT_CONFIG_COUNT:-}" ]; then
+  i=0
+  while [ "$i" -lt "$GIT_CONFIG_COUNT" ]; do
+    unset "GIT_CONFIG_KEY_$i" "GIT_CONFIG_VALUE_$i"
+    i=$((i + 1))
+  done
+  unset GIT_CONFIG_COUNT
+fi
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.bareRepository
+export GIT_CONFIG_VALUE_0=all
+# -------------------------------------------------------------------------
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
