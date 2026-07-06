@@ -55,10 +55,13 @@ export PATH="$BUN_INSTALL/bin:$PATH"
 # Claude code needs to see ~/.local/bin
 export PATH="$HOME/.local/bin:$PATH"
 
+# End of path so that the spry repo can claim sp (via mise.toml) when we are
+# developing it.
+export PATH="$PATH:/Users/don.denton/.spry/bin"
+
 # mise
 # if installed, activate. See post-up hook for installation
 if command -v mise &> /dev/null; then
   eval "$(mise activate zsh)"
 fi
 
-export PATH="/Users/don.denton/.spry/bin:$PATH"
