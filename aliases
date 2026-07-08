@@ -20,7 +20,6 @@ alias gback='git reset HEAD^1'
 # Git Rebase "Reset": During rebase, ours is the branch we are rebasing onto
 alias grr="git checkout --ours ."
 
-
 alias gpf='git push --force-with-lease'
 alias glog='git --no-pager log --pretty="**%s**%n%n%b" --reverse master..HEAD || git --no-pager log --pretty="**%s**%n%n%b" --reverse main..HEAD'
 alias glogsep='git --no-pager log --pretty="# %s%n%n%b" --reverse master..HEAD || git --no-pager log --pretty="## %s%n%n%b" --reverse main..HEAD'
