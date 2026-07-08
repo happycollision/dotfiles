@@ -100,6 +100,21 @@ git pull
 rcup
 ```
 
+## Testing
+
+From the repository root, run all test suites:
+
+```bash
+./test/run-tests.sh
+```
+
+You can also run suites individually:
+
+```bash
+./test/git-ht-test.sh
+./test/killport-test.sh
+```
+
 ## License
 
 See [LICENSE](LICENSE) file. Based on thoughtbot's dotfiles framework with additions by Don Denton.

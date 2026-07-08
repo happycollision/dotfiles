@@ -2,6 +2,14 @@
 
 This directory contains test suites for custom git extensions and other dotfiles utilities.
 
+## Run All Tests
+
+Run all test suites with one command:
+
+```sh
+./test/run-tests.sh
+```
+
 ## git-ht Tests
 
 The `git-ht-test.sh` script provides comprehensive regression testing for the `git ht` worktree plugin.
