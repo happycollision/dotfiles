@@ -3,6 +3,14 @@
 
 typeset -gA _claude_ignore_warned_repos
 
+# Returns 0 if the repo's .gitignore properly ignores Claude files.
+# Recognized signals: an explicit `.claude` rule, or a `*.local.*` rule
+# (which covers settings.local.json and other local Claude files).
+_claude_gitignore_configured() {
+  local repo_root=$1
+  grep -qE '\.claude|\*\.local\.\*' "$repo_root/.gitignore" 2>/dev/null
+}
+
 _check_claude_ignore_mismatch() {
   # Only run in git repos
   local git_dir
@@ -20,7 +28,7 @@ _check_claude_ignore_mismatch() {
   grep -q "^\.claude" "$git_dir/info/exclude" 2>/dev/null && has_exclude=true
 
   local has_gitignore=false
-  grep -q "\.claude" "$repo_root/.gitignore" 2>/dev/null && has_gitignore=true
+  _claude_gitignore_configured "$repo_root" && has_gitignore=true
 
   local tracked_files=$(git ls-files .claude/ 2>/dev/null)
 
@@ -148,7 +156,7 @@ claude_exclude_conflict() {
   git_dir=$(git rev-parse --git-dir 2>/dev/null) || return 1
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
   grep -q "^\.claude" "$git_dir/info/exclude" 2>/dev/null || return 1
-  grep -q "\.claude" "$repo_root/.gitignore" 2>/dev/null || return 1
+  _claude_gitignore_configured "$repo_root" || return 1
   return 0
 }
 
@@ -160,7 +168,7 @@ claude_not_configured() {
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
   [[ -d "$repo_root/.claude" ]] || return 1
   grep -q "^\.claude" "$git_dir/info/exclude" 2>/dev/null && return 1
-  grep -q "\.claude" "$repo_root/.gitignore" 2>/dev/null && return 1
+  _claude_gitignore_configured "$repo_root" && return 1
   return 0
 }
 
