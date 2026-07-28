@@ -774,7 +774,15 @@ FAILSETUPSCRIPT
   
   # Test removing non-existent worktree
   assert_output_contains "git_ht remove nonexistent-wt" "No worktree found" "Fails gracefully when removing non-existent worktree"
-  
+
+  # Remove must work on a worktree that lives OUTSIDE worktreesDir, as long as
+  # a worktree exists for the named branch. remove is non-destructive and the
+  # branch was named explicitly, so location is irrelevant.
+  git worktree add "$SANDBOX/other-location/rm-offloc" -b rm-offloc
+  assert_success "git_ht remove rm-offloc" "Remove works on an off-location worktree"
+  assert_file_not_exists "$SANDBOX/other-location/rm-offloc" "Off-location worktree removed"
+  git branch -D rm-offloc 2>/dev/null || true
+
   # ============================================================================
   # Test Group 12: Remove - auto branch cleanup (SHA matching)
   # ============================================================================

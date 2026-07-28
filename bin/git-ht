@@ -407,28 +407,6 @@ require_fzf() {
   fi
 }
 
-# Validate that a worktree's actual path matches the expected path from config
-validate_worktree_dir() {
-  local branch="$1"
-  local actual_path=$(get_worktree_path_for_branch "$branch" || true)
-
-  if [ -z "$actual_path" ]; then
-    printf "Error: No worktree found for branch '%s'\n" "$branch" >&2
-    exit 1
-  fi
-
-  local expected_path="$(get_worktrees_dir)/$branch"
-
-  if [ "$actual_path" != "$expected_path" ]; then
-    printf "Error: Worktree directory mismatch for '%s'\n" "$branch" >&2
-    printf "  Expected: %s\n" "$expected_path" >&2
-    printf "  Actual:   %s\n" "$actual_path" >&2
-    printf "\nThis can happen if 'git checkout' was run inside the worktree.\n" >&2
-    printf "git-ht cannot reliably operate on this worktree.\n" >&2
-    exit 1
-  fi
-}
-
 # Check if a branch name matches the default branch (local or remote)
 is_default_branch() {
   local branch="$1"
@@ -679,9 +657,7 @@ cmd_checkout() {
   # Check if a worktree already exists for this branch
   local existing_wt_path=$(get_worktree_path_for_branch "$branch" || true)
   if [ -n "$existing_wt_path" ]; then
-    # Worktree exists — validate directory and run exec
-    validate_worktree_dir "$branch"
-
+    # Worktree exists — run exec against its real path
     if [ -n "$base" ]; then
       printf "Error: [base] argument is not valid when worktree already exists for '%s'\n" "$branch" >&2
       exit 1
@@ -796,11 +772,13 @@ cmd_remove() {
     name=$(select_worktree_interactive 0)
   fi
 
-  # Validate worktree directory
-  validate_worktree_dir "$name"
-
-  local worktrees_dir=$(get_worktrees_dir)
-  local worktree_path="$worktrees_dir/$name"
+  # Resolve the worktree's real tracked path (location-agnostic). remove is
+  # non-destructive, so there is no path/branch gate here.
+  local worktree_path=$(get_worktree_path_for_branch "$name" || true)
+  if [ -z "$worktree_path" ]; then
+    printf "Error: No worktree found for branch '%s'\n" "$name" >&2
+    exit 1
+  fi
 
   # Remove the worktree
   if [ $force -eq 1 ]; then
@@ -881,11 +859,12 @@ cmd_destroy() {
     exit 1
   fi
 
-  # Validate worktree directory
-  validate_worktree_dir "$name"
-
-  local worktrees_dir=$(get_worktrees_dir)
-  local worktree_path="$worktrees_dir/$name"
+  # Resolve the worktree's real tracked path (location-agnostic).
+  local worktree_path=$(get_worktree_path_for_branch "$name" || true)
+  if [ -z "$worktree_path" ]; then
+    printf "Error: No worktree found for branch '%s'\n" "$name" >&2
+    exit 1
+  fi
 
   # Remove the worktree
   if [ $force -eq 1 ]; then
