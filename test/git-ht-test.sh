@@ -333,11 +333,30 @@ run_all_tests() {
     printf "  Output: %s\n" "$list_output"
   fi
 
-  # Create a mismatched worktree (manually add worktree at wrong path)
+  # A worktree whose final path segment does NOT match its branch name is
+  # flagged (git checkout was likely run inside it). Location is irrelevant —
+  # this one lives outside worktreesDir but is flagged because the path
+  # ("wrong-path") does not reflect the branch ("list-mismatch-branch").
   mkdir -p "$SANDBOX/other-location"
   git worktree add "$SANDBOX/other-location/wrong-path" -b list-mismatch-branch
-  assert_output_contains "git_ht list" "path mismatch" "list flags worktree with path mismatch"
+  assert_output_contains "git_ht list" "path does not match branch" "list flags worktree whose path does not reflect its branch"
   assert_output_contains "git_ht list" "list-mismatch-branch" "list shows mismatched worktree branch name"
+
+  # A worktree at a CUSTOM location whose final path segment DOES match its
+  # branch name must NOT be flagged. This is the behavior the location-gate
+  # removal is all about.
+  git worktree add "$SANDBOX/other-location/custom-ok" -b custom-ok
+  list_ok_output=$(git_ht list 2>&1)
+  if echo "$list_ok_output" | grep -q "custom-ok" && ! echo "$list_ok_output" | grep "custom-ok" | grep -q "!"; then
+    TESTS_RUN=$((TESTS_RUN + 1))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    printf "${GREEN}✓${NC} Off-location worktree with matching name is not flagged\n"
+  else
+    TESTS_RUN=$((TESTS_RUN + 1))
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    printf "${RED}✗${NC} Off-location worktree with matching name is not flagged\n"
+    printf "  Output: %s\n" "$list_ok_output"
+  fi
 
   # Create a detached HEAD worktree
   git worktree add --detach "$SANDBOX/other-location/detached-wt" HEAD
@@ -349,8 +368,10 @@ run_all_tests() {
 
   # Clean up worktrees for subsequent tests
   git worktree remove "$SANDBOX/other-location/wrong-path"
+  git worktree remove "$SANDBOX/other-location/custom-ok"
   git worktree remove "$SANDBOX/other-location/detached-wt"
   git branch -D list-mismatch-branch 2>/dev/null || true
+  git branch -D custom-ok 2>/dev/null || true
   git_ht remove list-test-1 --force 2>/dev/null || true
 
   # ============================================================================

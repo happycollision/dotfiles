@@ -441,6 +441,24 @@ is_default_branch() {
   [ "$branch" = "$default_name" ]
 }
 
+# Check whether a worktree's path reflects the branch it contains.
+# The path must END WITH "/<branch>" (trailing path segments). This is exactly
+# what git-ht produces on creation:
+#   branch "my-feature"    -> <dir>/my-feature      (ends with /my-feature)
+#   branch "feature/login" -> <dir>/feature/login   (ends with /feature/login)
+# Anchoring on a leading slash avoids a false match where the branch is only a
+# suffix substring of the final segment (path .../my-feature vs branch "feature").
+# Args: worktree_path, branch
+# Returns 0 if the path reflects the branch, 1 otherwise.
+path_matches_branch() {
+  local worktree_path="$1"
+  local branch="$2"
+  case "$worktree_path" in
+    */"$branch") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Run exec command with worktree path
 # Args: worktree_path, exec_override, no_exec_flag
 run_exec() {
@@ -1126,7 +1144,6 @@ EOF
 
 # List subcommand — show all linked worktrees and flag naming issues
 cmd_list() {
-  local worktrees_dir=$(get_worktrees_dir)
   local repo_root=$(get_repo_root)
   local current_path=""
   local found=0
@@ -1142,11 +1159,10 @@ cmd_list() {
       fi
       found=1
       local current_branch=$(echo "$line" | sed 's|^branch refs/heads/||')
-      local expected_path="$worktrees_dir/$current_branch"
-      if [ "$current_path" = "$expected_path" ]; then
+      if path_matches_branch "$current_path" "$current_branch"; then
         printf "%s\t%s\n" "$current_branch" "$current_path"
       else
-        printf "%s\t%s\t! path mismatch (likely wrong branch is checked out)\n" "$current_branch" "$current_path"
+        printf "%s\t%s\t! path does not match branch (git checkout run inside?)\n" "$current_branch" "$current_path"
       fi
       current_path=""
     elif echo "$line" | grep -q "^detached"; then
