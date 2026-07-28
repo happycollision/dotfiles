@@ -866,7 +866,39 @@ cmd_destroy() {
     exit 1
   fi
 
-  # Remove the worktree
+  # Without --force, evaluate BOTH gates up front and report every applicable
+  # reason together, because --force overrides all of them. Take no action if
+  # any gate trips.
+  if [ $force -eq 0 ]; then
+    local blocked=0
+
+    # Gate 1: path/branch mismatch (unless disabled by config; default on).
+    local fail_on_mismatch=$(get_config "happy-trees.failDestroyOnPathMismatch" "true")
+    if [ "$fail_on_mismatch" != "false" ] && ! path_matches_branch "$worktree_path" "$name"; then
+      blocked=1
+      printf "Error: Refusing to destroy '%s'\n" "$name" >&2
+      printf "  The worktree's path usually indicates the branch it contains, but this one\n" >&2
+      printf "  does not. This suggests that the worktree was created for a purpose other\n" >&2
+      printf "  than hosting its current branch.\n" >&2
+      printf "    Path:   %s\n" "$worktree_path" >&2
+      printf "    Branch: %s\n" "$name" >&2
+      printf "  You may disable this check with:\n" >&2
+      printf "    git config happy-trees.failDestroyOnPathMismatch false\n" >&2
+    fi
+
+    # Gate 2: dirty working directory.
+    if [ -n "$(git -C "$worktree_path" status --porcelain 2>/dev/null)" ]; then
+      blocked=1
+      printf "Error: Worktree '%s' has uncommitted changes.\n" "$name" >&2
+    fi
+
+    if [ $blocked -eq 1 ]; then
+      printf "\nPass the --force flag to continue (this overrides all of the above).\n" >&2
+      exit 1
+    fi
+  fi
+
+  # Remove the worktree (--force also overrides git's own dirty check).
   if [ $force -eq 1 ]; then
     git worktree remove --force "$worktree_path"
   else
