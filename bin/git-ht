@@ -42,12 +42,14 @@ Commands:
   setup              Run setup script for a worktree
 
 git ht list:
-  List all linked worktrees and flag any that are incompatible with git-ht.
+  List all linked worktrees and flag any whose identity is unclear.
 
-  Worktrees whose directory path does not match the expected naming convention
-  (<worktrees-dir>/<branch>) are flagged — this typically means 'git checkout'
-  was run inside the worktree to switch branches. Detached HEAD worktrees are
-  also flagged since they have no branch association.
+  A worktree's path normally ends with the name of the branch it was created
+  for. When the trailing path segments do NOT match the checked-out branch, the
+  worktree is flagged — this typically means 'git checkout' was run inside it to
+  switch branches, so the path no longer reflects its contents. The location of
+  the worktree does not matter; only whether the path reflects the branch.
+  Detached HEAD worktrees are also flagged since they have no branch association.
 
 
 git ht checkout [branch [base]] [options]:
@@ -103,6 +105,12 @@ git ht destroy [branch] [options]:
 
   Cannot be run on the default branch (local or remote).
 
+  Before acting, destroy refuses (without --force) if either:
+    - the worktree's path does not reflect its branch (see 'git ht list'),
+      unless disabled via happy-trees.failDestroyOnPathMismatch, or
+    - the worktree has uncommitted changes.
+  Both conditions are reported together, and --force overrides both.
+
   If no [branch] is provided, git-ht will prompt interactively (requires fzf)
   to select from all currently registered worktrees. The default branch is
   excluded from the interactive list.
@@ -111,7 +119,8 @@ git ht destroy [branch] [options]:
   will be left in a stale directory. You will need to cd elsewhere manually.
 
   Options:
-    --force                    Remove even if working directory is dirty
+    --force                    Destroy even on a path/branch mismatch or a dirty
+                               working directory
 
 
 
@@ -178,15 +187,23 @@ Configuration:
         git config happy-trees.setupLocation "<repo_root>/.config/setup.sh"
         git config happy-trees.setupLocation "<worktree_root>/local-setup.sh"
 
+    git config happy-trees.failDestroyOnPathMismatch <true|false>
+      When true (default), 'git ht destroy' refuses to act (without --force) on
+      a worktree whose path does not reflect its branch. Set to false to allow
+      destroy to proceed on such worktrees without --force. Does not affect the
+      dirty-working-directory check, and does not affect 'git ht list' flagging.
+      Example: git config happy-trees.failDestroyOnPathMismatch false
+
   Use --global flag to set config globally, or omit for repo-specific config.
 
 Technical notes:
-  Directory validation:
-    All commands verify that a worktree's actual directory matches the expected
-    path derived from worktreesDir config. If a mismatch is detected, the
-    command will fail. This can happen if you manually run 'git checkout' inside
-    a worktree to switch its branch — git-ht can no longer reliably determine
-    the worktree's identity and will refuse to operate on it.
+  Worktree identity:
+    git-ht identifies worktrees by branch name and operates on whatever path
+    git has recorded for that branch, so worktrees may live anywhere — the
+    worktreesDir setting is only the default location for NEW worktrees. As a
+    convenience, 'git ht list' flags any worktree whose path no longer reflects
+    its branch, and 'git ht destroy' refuses such worktrees without --force
+    (see happy-trees.failDestroyOnPathMismatch).
 
   Changing worktreesDir:
     If you change the happy-trees.worktreesDir setting, existing worktrees
