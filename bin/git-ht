@@ -257,14 +257,19 @@ get_repo_root() {
   # For a bare repo, git-dir IS the repo root.
   # For a worktree linked to a bare repo, git-dir is like:
   #   /path/to/repo.git/worktrees/name (no /.git/ segment)
+  #
+  # The admin dir is always the LAST /worktrees/<name> segment, so anchor the
+  # strips with a leading greedy .* — the repo itself may live beneath an
+  # unrelated path that also contains /worktrees/ (e.g. .claude/worktrees/foo),
+  # and stripping from the first match would return a root outside the repo.
   local git_dir=$(git rev-parse --git-dir 2>/dev/null)
 
-  if echo "$git_dir" | grep -q "/\.git/worktrees/"; then
+  if echo "$git_dir" | grep -q "/\.git/worktrees/[^/]*$"; then
     # Linked worktree of a non-bare repo
-    echo "$git_dir" | sed 's|/\.git/worktrees/.*||'
+    echo "$git_dir" | sed 's|\(.*\)/\.git/worktrees/.*|\1|'
   elif echo "$git_dir" | grep -q "/worktrees/"; then
-    # Linked worktree of a bare repo — strip /worktrees/name
-    echo "$git_dir" | sed 's|/worktrees/.*||'
+    # Linked worktree of a bare repo — strip the trailing /worktrees/name
+    echo "$git_dir" | sed 's|\(.*\)/worktrees/.*|\1|'
   elif [ "$(git rev-parse --is-bare-repository 2>/dev/null)" = "true" ]; then
     # Inside the bare repo itself
     cd "$git_dir" && pwd

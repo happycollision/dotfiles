@@ -1147,6 +1147,29 @@ SETUPSCRIPT
   git worktree remove --force "$SANDBOX/test-repo.worktrees/setup-run-test"
   git branch -D setup-run-test
   
+  # Regression: repo root resolution must not be confused by a "/worktrees/"
+  # segment that appears ABOVE the repo in the filesystem path (e.g. checkouts
+  # living under .claude/worktrees/<name>/). git's linked-worktree git-dir is
+  # always <common-dir>/worktrees/<name>, so only the LAST occurrence delimits
+  # the repo root; stripping from the first one yields a bogus root and the
+  # <repo_root> token then expands outside the repo.
+  nested_wt_dir="$SANDBOX/worktrees/inner/test-repo.worktrees"
+  original_wt_dir=$(git config happy-trees.worktreesDir)
+  git config happy-trees.worktreesDir "$nested_wt_dir"
+  assert_success "git_ht co nested-path-test -s" \
+    "Creates worktree under a path containing a nested /worktrees/ segment"
+  cd "$nested_wt_dir/nested-path-test"
+  assert_success "git_ht setup" \
+    "Runs setup when repo path contains an outer /worktrees/ segment"
+  assert_file_exists "$nested_wt_dir/nested-path-test/.setup-marker" \
+    "Setup ran with correctly resolved repo root under nested /worktrees/ path"
+
+  cd "$TEST_REPO_DIR"
+  git worktree remove --force "$nested_wt_dir/nested-path-test"
+  git branch -D nested-path-test
+  rm -rf "$SANDBOX/worktrees"
+  git config happy-trees.worktreesDir "$original_wt_dir"
+
   # Cleanup setup script and config from prior group
   rm -f "$TEST_REPO_DIR/setup-worktree.sh"
   git config --unset happy-trees.setupLocation
