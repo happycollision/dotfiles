@@ -333,11 +333,30 @@ run_all_tests() {
     printf "  Output: %s\n" "$list_output"
   fi
 
-  # Create a mismatched worktree (manually add worktree at wrong path)
+  # A worktree whose final path segment does NOT match its branch name is
+  # flagged (git checkout was likely run inside it). Location is irrelevant —
+  # this one lives outside worktreesDir but is flagged because the path
+  # ("wrong-path") does not reflect the branch ("list-mismatch-branch").
   mkdir -p "$SANDBOX/other-location"
   git worktree add "$SANDBOX/other-location/wrong-path" -b list-mismatch-branch
-  assert_output_contains "git_ht list" "path mismatch" "list flags worktree with path mismatch"
+  assert_output_contains "git_ht list" "path does not match branch" "list flags worktree whose path does not reflect its branch"
   assert_output_contains "git_ht list" "list-mismatch-branch" "list shows mismatched worktree branch name"
+
+  # A worktree at a CUSTOM location whose final path segment DOES match its
+  # branch name must NOT be flagged. This is the behavior the location-gate
+  # removal is all about.
+  git worktree add "$SANDBOX/other-location/custom-ok" -b custom-ok
+  list_ok_output=$(git_ht list 2>&1)
+  if echo "$list_ok_output" | grep -q "custom-ok" && ! echo "$list_ok_output" | grep "custom-ok" | grep -q "!"; then
+    TESTS_RUN=$((TESTS_RUN + 1))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    printf "${GREEN}✓${NC} Off-location worktree with matching name is not flagged\n"
+  else
+    TESTS_RUN=$((TESTS_RUN + 1))
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    printf "${RED}✗${NC} Off-location worktree with matching name is not flagged\n"
+    printf "  Output: %s\n" "$list_ok_output"
+  fi
 
   # Create a detached HEAD worktree
   git worktree add --detach "$SANDBOX/other-location/detached-wt" HEAD
@@ -349,8 +368,10 @@ run_all_tests() {
 
   # Clean up worktrees for subsequent tests
   git worktree remove "$SANDBOX/other-location/wrong-path"
+  git worktree remove "$SANDBOX/other-location/custom-ok"
   git worktree remove "$SANDBOX/other-location/detached-wt"
   git branch -D list-mismatch-branch 2>/dev/null || true
+  git branch -D custom-ok 2>/dev/null || true
   git_ht remove list-test-1 --force 2>/dev/null || true
 
   # ============================================================================
@@ -753,7 +774,15 @@ FAILSETUPSCRIPT
   
   # Test removing non-existent worktree
   assert_output_contains "git_ht remove nonexistent-wt" "No worktree found" "Fails gracefully when removing non-existent worktree"
-  
+
+  # Remove must work on a worktree that lives OUTSIDE worktreesDir, as long as
+  # a worktree exists for the named branch. remove is non-destructive and the
+  # branch was named explicitly, so location is irrelevant.
+  git worktree add "$SANDBOX/other-location/rm-offloc" -b rm-offloc
+  assert_success "git_ht remove rm-offloc" "Remove works on an off-location worktree"
+  assert_file_not_exists "$SANDBOX/other-location/rm-offloc" "Off-location worktree removed"
+  git branch -D rm-offloc 2>/dev/null || true
+
   # ============================================================================
   # Test Group 12: Remove - auto branch cleanup (SHA matching)
   # ============================================================================
@@ -850,7 +879,48 @@ FAILSETUPSCRIPT
   assert_success "git_ht destroy destroy-test-2 --force" "Force destroy succeeds on dirty worktree"
   assert_file_not_exists "$SANDBOX/test-repo.worktrees/destroy-test-2" "Dirty worktree removed by force destroy"
   assert_failure "git branch --list destroy-test-2 | grep -q destroy-test-2" "Local branch deleted by force destroy"
-  
+
+  # --- Destroy path/branch mismatch gate ---------------------------------
+  # An off-purpose worktree (path does not reflect its branch) must NOT be
+  # destroyed without --force, and the error must explain why + name the config.
+  git worktree add "$SANDBOX/other-location/wrong-dest" -b destroy-mismatch
+  assert_failure "git_ht destroy destroy-mismatch" "Destroy blocks on path/branch mismatch"
+  assert_output_contains "git_ht destroy destroy-mismatch" "path usually indicates the branch" "Mismatch message explains why"
+  assert_output_contains "git_ht destroy destroy-mismatch" "failDestroyOnPathMismatch" "Mismatch message names the config to disable it"
+  # --force overrides the mismatch gate.
+  assert_success "git_ht destroy destroy-mismatch --force" "Force destroy overrides mismatch gate"
+  assert_file_not_exists "$SANDBOX/other-location/wrong-dest" "Mismatched worktree removed by force destroy"
+  git branch -D destroy-mismatch 2>/dev/null || true
+
+  # --- Destroy reports BOTH mismatch and dirty together ------------------
+  git worktree add "$SANDBOX/other-location/wrong-dirty" -b destroy-both
+  echo "dirty" > "$SANDBOX/other-location/wrong-dirty/dirty.txt"
+  git -C "$SANDBOX/other-location/wrong-dirty" add dirty.txt
+  assert_output_contains "git_ht destroy destroy-both" "path usually indicates the branch" "Combined message reports mismatch"
+  assert_output_contains "git_ht destroy destroy-both" "uncommitted changes" "Combined message reports dirty worktree"
+  assert_success "git_ht destroy destroy-both --force" "Force destroy overrides both gates"
+  git branch -D destroy-both 2>/dev/null || true
+
+  # --- failDestroyOnPathMismatch=false disables ONLY the mismatch gate ----
+  git config happy-trees.failDestroyOnPathMismatch false
+  # Clean mismatched worktree: destroy succeeds without --force.
+  git worktree add "$SANDBOX/other-location/wrong-clean" -b destroy-cfg-clean
+  assert_success "git_ht destroy destroy-cfg-clean" "Config-disabled mismatch gate lets clean destroy proceed"
+  git branch -D destroy-cfg-clean 2>/dev/null || true
+  # Dirty mismatched worktree: still blocked (config disables mismatch, not dirty).
+  git worktree add "$SANDBOX/other-location/wrong-cfgdirty" -b destroy-cfg-dirty
+  echo "dirty" > "$SANDBOX/other-location/wrong-cfgdirty/dirty.txt"
+  git -C "$SANDBOX/other-location/wrong-cfgdirty" add dirty.txt
+  assert_failure "git_ht destroy destroy-cfg-dirty" "Dirty worktree still blocks destroy when mismatch gate is config-disabled"
+  assert_success "git_ht destroy destroy-cfg-dirty --force" "Force destroy proceeds on dirty when mismatch gate is config-disabled"
+  git branch -D destroy-cfg-dirty 2>/dev/null || true
+  git config --unset happy-trees.failDestroyOnPathMismatch
+
+  # --- Off-location but name-matching worktree destroys cleanly -----------
+  git worktree add "$SANDBOX/other-location/dest-ok" -b dest-ok
+  assert_success "git_ht destroy dest-ok" "Off-location name-matching worktree destroys with no gate tripped"
+  git branch -D dest-ok 2>/dev/null || true
+
   # ============================================================================
   # Test Group 15: Destroy - default branch protection
   # ============================================================================

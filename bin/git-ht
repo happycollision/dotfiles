@@ -42,12 +42,14 @@ Commands:
   setup              Run setup script for a worktree
 
 git ht list:
-  List all linked worktrees and flag any that are incompatible with git-ht.
+  List all linked worktrees and flag any whose identity is unclear.
 
-  Worktrees whose directory path does not match the expected naming convention
-  (<worktrees-dir>/<branch>) are flagged — this typically means 'git checkout'
-  was run inside the worktree to switch branches. Detached HEAD worktrees are
-  also flagged since they have no branch association.
+  A worktree's path normally ends with the name of the branch it was created
+  for. When the trailing path segments do NOT match the checked-out branch, the
+  worktree is flagged — this typically means 'git checkout' was run inside it to
+  switch branches, so the path no longer reflects its contents. The location of
+  the worktree does not matter; only whether the path reflects the branch.
+  Detached HEAD worktrees are also flagged since they have no branch association.
 
 
 git ht checkout [branch [base]] [options]:
@@ -103,6 +105,12 @@ git ht destroy [branch] [options]:
 
   Cannot be run on the default branch (local or remote).
 
+  Before acting, destroy refuses (without --force) if either:
+    - the worktree's path does not reflect its branch (see 'git ht list'),
+      unless disabled via happy-trees.failDestroyOnPathMismatch, or
+    - the worktree has uncommitted changes.
+  Both conditions are reported together, and --force overrides both.
+
   If no [branch] is provided, git-ht will prompt interactively (requires fzf)
   to select from all currently registered worktrees. The default branch is
   excluded from the interactive list.
@@ -111,7 +119,8 @@ git ht destroy [branch] [options]:
   will be left in a stale directory. You will need to cd elsewhere manually.
 
   Options:
-    --force                    Remove even if working directory is dirty
+    --force                    Destroy even on a path/branch mismatch or a dirty
+                               working directory
 
 
 
@@ -178,15 +187,23 @@ Configuration:
         git config happy-trees.setupLocation "<repo_root>/.config/setup.sh"
         git config happy-trees.setupLocation "<worktree_root>/local-setup.sh"
 
+    git config happy-trees.failDestroyOnPathMismatch <true|false>
+      When true (default), 'git ht destroy' refuses to act (without --force) on
+      a worktree whose path does not reflect its branch. Set to false to allow
+      destroy to proceed on such worktrees without --force. Does not affect the
+      dirty-working-directory check, and does not affect 'git ht list' flagging.
+      Example: git config happy-trees.failDestroyOnPathMismatch false
+
   Use --global flag to set config globally, or omit for repo-specific config.
 
 Technical notes:
-  Directory validation:
-    All commands verify that a worktree's actual directory matches the expected
-    path derived from worktreesDir config. If a mismatch is detected, the
-    command will fail. This can happen if you manually run 'git checkout' inside
-    a worktree to switch its branch — git-ht can no longer reliably determine
-    the worktree's identity and will refuse to operate on it.
+  Worktree identity:
+    git-ht identifies worktrees by branch name and operates on whatever path
+    git has recorded for that branch, so worktrees may live anywhere — the
+    worktreesDir setting is only the default location for NEW worktrees. As a
+    convenience, 'git ht list' flags any worktree whose path no longer reflects
+    its branch, and 'git ht destroy' refuses such worktrees without --force
+    (see happy-trees.failDestroyOnPathMismatch).
 
   Changing worktreesDir:
     If you change the happy-trees.worktreesDir setting, existing worktrees
@@ -407,28 +424,6 @@ require_fzf() {
   fi
 }
 
-# Validate that a worktree's actual path matches the expected path from config
-validate_worktree_dir() {
-  local branch="$1"
-  local actual_path=$(get_worktree_path_for_branch "$branch" || true)
-
-  if [ -z "$actual_path" ]; then
-    printf "Error: No worktree found for branch '%s'\n" "$branch" >&2
-    exit 1
-  fi
-
-  local expected_path="$(get_worktrees_dir)/$branch"
-
-  if [ "$actual_path" != "$expected_path" ]; then
-    printf "Error: Worktree directory mismatch for '%s'\n" "$branch" >&2
-    printf "  Expected: %s\n" "$expected_path" >&2
-    printf "  Actual:   %s\n" "$actual_path" >&2
-    printf "\nThis can happen if 'git checkout' was run inside the worktree.\n" >&2
-    printf "git-ht cannot reliably operate on this worktree.\n" >&2
-    exit 1
-  fi
-}
-
 # Check if a branch name matches the default branch (local or remote)
 is_default_branch() {
   local branch="$1"
@@ -439,6 +434,24 @@ is_default_branch() {
   local default_name="${default_ref#origin/}"
 
   [ "$branch" = "$default_name" ]
+}
+
+# Check whether a worktree's path reflects the branch it contains.
+# The path must END WITH "/<branch>" (trailing path segments). This is exactly
+# what git-ht produces on creation:
+#   branch "my-feature"    -> <dir>/my-feature      (ends with /my-feature)
+#   branch "feature/login" -> <dir>/feature/login   (ends with /feature/login)
+# Anchoring on a leading slash avoids a false match where the branch is only a
+# suffix substring of the final segment (path .../my-feature vs branch "feature").
+# Args: worktree_path, branch
+# Returns 0 if the path reflects the branch, 1 otherwise.
+path_matches_branch() {
+  local worktree_path="$1"
+  local branch="$2"
+  case "$worktree_path" in
+    */"$branch") return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # Run exec command with worktree path
@@ -661,9 +674,7 @@ cmd_checkout() {
   # Check if a worktree already exists for this branch
   local existing_wt_path=$(get_worktree_path_for_branch "$branch" || true)
   if [ -n "$existing_wt_path" ]; then
-    # Worktree exists — validate directory and run exec
-    validate_worktree_dir "$branch"
-
+    # Worktree exists — run exec against its real path
     if [ -n "$base" ]; then
       printf "Error: [base] argument is not valid when worktree already exists for '%s'\n" "$branch" >&2
       exit 1
@@ -778,11 +789,13 @@ cmd_remove() {
     name=$(select_worktree_interactive 0)
   fi
 
-  # Validate worktree directory
-  validate_worktree_dir "$name"
-
-  local worktrees_dir=$(get_worktrees_dir)
-  local worktree_path="$worktrees_dir/$name"
+  # Resolve the worktree's real tracked path (location-agnostic). remove is
+  # non-destructive, so there is no path/branch gate here.
+  local worktree_path=$(get_worktree_path_for_branch "$name" || true)
+  if [ -z "$worktree_path" ]; then
+    printf "Error: No worktree found for branch '%s'\n" "$name" >&2
+    exit 1
+  fi
 
   # Remove the worktree
   if [ $force -eq 1 ]; then
@@ -863,13 +876,46 @@ cmd_destroy() {
     exit 1
   fi
 
-  # Validate worktree directory
-  validate_worktree_dir "$name"
+  # Resolve the worktree's real tracked path (location-agnostic).
+  local worktree_path=$(get_worktree_path_for_branch "$name" || true)
+  if [ -z "$worktree_path" ]; then
+    printf "Error: No worktree found for branch '%s'\n" "$name" >&2
+    exit 1
+  fi
 
-  local worktrees_dir=$(get_worktrees_dir)
-  local worktree_path="$worktrees_dir/$name"
+  # Without --force, evaluate BOTH gates up front and report every applicable
+  # reason together, because --force overrides all of them. Take no action if
+  # any gate trips.
+  if [ $force -eq 0 ]; then
+    local blocked=0
 
-  # Remove the worktree
+    # Gate 1: path/branch mismatch (unless disabled by config; default on).
+    local fail_on_mismatch=$(get_config "happy-trees.failDestroyOnPathMismatch" "true")
+    if [ "$fail_on_mismatch" != "false" ] && ! path_matches_branch "$worktree_path" "$name"; then
+      blocked=1
+      printf "Error: Refusing to destroy '%s'\n" "$name" >&2
+      printf "  The worktree's path usually indicates the branch it contains, but this one\n" >&2
+      printf "  does not. This suggests that the worktree was created for a purpose other\n" >&2
+      printf "  than hosting its current branch.\n" >&2
+      printf "    Path:   %s\n" "$worktree_path" >&2
+      printf "    Branch: %s\n" "$name" >&2
+      printf "  You may disable this check with:\n" >&2
+      printf "    git config happy-trees.failDestroyOnPathMismatch false\n" >&2
+    fi
+
+    # Gate 2: dirty working directory.
+    if [ -n "$(git -C "$worktree_path" status --porcelain 2>/dev/null)" ]; then
+      blocked=1
+      printf "Error: Worktree '%s' has uncommitted changes.\n" "$name" >&2
+    fi
+
+    if [ $blocked -eq 1 ]; then
+      printf "\nPass the --force flag to continue (this overrides all of the above).\n" >&2
+      exit 1
+    fi
+  fi
+
+  # Remove the worktree (--force also overrides git's own dirty check).
   if [ $force -eq 1 ]; then
     git worktree remove --force "$worktree_path"
   else
@@ -1126,7 +1172,6 @@ EOF
 
 # List subcommand — show all linked worktrees and flag naming issues
 cmd_list() {
-  local worktrees_dir=$(get_worktrees_dir)
   local repo_root=$(get_repo_root)
   local current_path=""
   local found=0
@@ -1142,11 +1187,10 @@ cmd_list() {
       fi
       found=1
       local current_branch=$(echo "$line" | sed 's|^branch refs/heads/||')
-      local expected_path="$worktrees_dir/$current_branch"
-      if [ "$current_path" = "$expected_path" ]; then
+      if path_matches_branch "$current_path" "$current_branch"; then
         printf "%s\t%s\n" "$current_branch" "$current_path"
       else
-        printf "%s\t%s\t! path mismatch (likely wrong branch is checked out)\n" "$current_branch" "$current_path"
+        printf "%s\t%s\t! path does not match branch (git checkout run inside?)\n" "$current_branch" "$current_path"
       fi
       current_path=""
     elif echo "$line" | grep -q "^detached"; then
