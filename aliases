@@ -16,6 +16,7 @@ alias gf='git commit --amend --no-edit'
 alias grc='git rebase --continue'
 alias gri='git rebase -i'
 alias gback='git reset HEAD^1'
+alias ggk='gk graph --gitkraken'
 
 # Git Rebase "Reset": During rebase, ours is the branch we are rebasing onto
 alias grr="git checkout --ours ."
