@@ -21,8 +21,6 @@
   excludesfile = ~/.gitignore
   autocrlf = input
 	editor = code --wait
-[merge]
-  ff = false
 [commit]
 [fetch]
   prune = true
