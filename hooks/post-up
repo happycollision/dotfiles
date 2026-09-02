@@ -2,18 +2,30 @@
 
 echo "Initial setup complete. Now doing post-up tasks."
 
-# Automatically set --skip-worktree on gitconfig to prevent app modifications
-# from showing up in git status. This is because ~/.gitconfig is symlinked and
-# some apps (like Kaleidoscope, VSCode, etc.) auto-modify it.
+# ~/.gitconfig is deliberately NOT managed by rcm -- not symlinked, not copied.
+# Apps rewrite the global config constantly (gh, GitKraken, VSCode,
+# Kaleidoscope); when it was a symlink into this repo those writes landed on the
+# tracked file, and the --skip-worktree bit we used to hide them made it worse:
+# git status called the tree clean while pulls failed with "local changes would
+# be overwritten by merge".
 #
-# To commit intentional changes to gitconfig:
-#   1. git update-index --no-skip-worktree gitconfig
-#   2. Make your changes and commit
-#   3. git update-index --skip-worktree gitconfig (or just run rcup again)
-#
-# Some IDEs may also allow you to stage directly without unskipping. But once
-# you stage something, the whole file is unskipped again, so be careful.
-(cd "$HOME/dotfiles" && git update-index --skip-worktree gitconfig 2>/dev/null)
+# So we own exactly one line of it. The include is PREPENDED, so machine-local
+# settings further down the file still override the shared config.
+gitconfig_include() {
+  shared="$HOME/.gitconfig.shared"
+  if git config --global --get-all include.path 2>/dev/null \
+     | sed "s|^~/|$HOME/|" | grep -qxF "$shared"; then
+    return 0
+  fi
+  tmp="$HOME/.gitconfig.rcm-$$"
+  printf '[include]\n\tpath = ~/.gitconfig.shared\n' > "$tmp" || return 1
+  if [ -f "$HOME/.gitconfig" ]; then
+    cat "$HOME/.gitconfig" >> "$tmp" || { rm -f "$tmp"; return 1; }
+  fi
+  mv "$tmp" "$HOME/.gitconfig" || { rm -f "$tmp"; return 1; }
+  echo "Added ~/.gitconfig.shared include to ~/.gitconfig" >&2
+}
+gitconfig_include
 
 if ! command -v brew &> /dev/null; then
   cat <<MSG >&2

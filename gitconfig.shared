@@ -1,3 +1,10 @@
+# Shared git config, tracked in dotfiles and SYMLINKED to ~/.gitconfig.shared.
+# Edits here are version controlled -- this is the file to change.
+#
+# ~/.gitconfig itself is a copied stub (COPY_ALWAYS in rcrc) that includes this
+# file, so apps that rewrite the global config (gh, GitKraken, VSCode,
+# Kaleidoscope) scribble on the disposable copy instead of on the repo.
+
 [push]
   default = current
 [color]
@@ -37,7 +44,5 @@
 	helper = osxkeychain
 [url "git@github.com:"]
 	insteadOf = https://github.com/
-[include]
-  path = ~/.gitconfig.local
 [happy-trees]
 	exec = code
