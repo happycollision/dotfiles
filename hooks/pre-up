@@ -4,7 +4,7 @@ echo "Before running rcup... we are grabbing a few things."
 
 # Jaspr
 
-expected_jaspr_version="v2.0-beta-8"
+expected_jaspr_version="v2.4.4"
 
 # function to install the latest version of jaspr
 install_jaspr() {
