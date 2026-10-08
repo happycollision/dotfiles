@@ -8,5 +8,4 @@ DOTFILES_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 
 cd "$DOTFILES_ROOT"
 
-./test/git-ht-test.sh
 ./test/killport-test.sh

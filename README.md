@@ -41,9 +41,10 @@ After initial installation, just run `rcup` to update.
 
 ### Custom Tools
 
-- **git-ht** - Git worktree wrapper for easier branch management
 - **addrev** - GitHub PR reviewer management tool
 - **reviews** - List GitHub PRs awaiting your review
+
+The Happy Trees worktree commands live in [Spry](https://github.com/happycollision/spry) as `sp ht`. The `[happy-trees]` settings in `gitconfig.shared` configure them.
 
 ### Shell Configuration
 
@@ -111,7 +112,6 @@ From the repository root, run all test suites:
 You can also run suites individually:
 
 ```bash
-./test/git-ht-test.sh
 ./test/killport-test.sh
 ```
 
